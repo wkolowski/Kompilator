@@ -1,0 +1,7 @@
+{ Błąd w linii 5: niewłaściwy znak '-' }
+VAR
+  a b
+BEGIN
+  b := -3;
+  a := b;
+END
