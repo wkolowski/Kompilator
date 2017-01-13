@@ -1,17 +1,44 @@
 {
-{-# XScopedTypeVariables #-}
 module Main (main, parse) where
 
 import Control.Monad.State
 
 import Lexer
 
-type Context = [String]
+type Context = [(Declaration, Maybe Int)]
+
+boundIn :: String -> Context -> Bool
+var `boundIn` [] = False
+var `boundIn` ((decl, _):decls) = case decl of
+	Scalar var' -> var == var' || var `boundIn` decls
+	Array var' _ -> var == var' || var `boundIn` decls
+
+correctAsgn :: Identifier -> Context -> Bool
+correctAsgn _ [] = False
+correctAsgn id ((Scalar name, _):decls) = case id of
+	Pidentifier name' -> name == name' || correctAsgn id decls
+	_ -> correctAsgn id decls
+correctAsgn id ((Array name _, _):decls) = case id of
+	ArrayPidentifier name' _ -> name == name' || correctAsgn id decls
+	ArrayNum name' _ -> name == name' || correctAsgn id decls
+	_ -> correctAsgn id decls
+
+{-
+correctAsgn id@(Pidentifier name) ((decl, _):decls) = case decl of
+	Scalar name' -> name == name' || correctAsgn id decls
+	_ -> correctAsgn id decls
+correctAsgn id@(ArrayPidtentifier name _) ((decl, _):decls) = case decl of
+	ArrayPidentifier name' _ -> name == name' || correctAsgn id decls
+	ArrayNum name' _ -> name == name' || correctAsgn id decls
+	_ -> correctAsgn id decls
+correctAsgn id@(ArrayNum name _) ((decl, _):decls) = case decl of
+	ArrayPidentifier name' _ -> name  
+-}
 
 }
 
 %name parse
-%monad {State Context}
+-- %monad {State Context}
 %tokentype {Token}
 %error {parseError}
 
@@ -71,52 +98,76 @@ type Context = [String]
 -- %left '*' '/' '%'
 %%
 Program :: {State Context Program}
-Program		: var Declarations begin {-Commands-} end					{do l <- $2; return $ Program (reverse l) []}--{\ctx -> Program (reverse (fst $ $2 ctx)) [] {-(reverse $4)-}}
+Program		: var Declarations begin Commands end				{liftM2 Program (fmap reverse $2) (fmap reverse $4)} --{do decls <- $2; cmds <- $4; return $ Program (reverse decls) (reverse cmds)}
 
---Declarations :: {State Context [Declaration]}
-Declarations	: Declarations pidentifier						{do rest <- $1; return $ Scalar $2 : rest} {-{\ctx -> case $2 `elem` ctx of
-												False -> Scalar $2 : ($1 ($2 : ctx))
-												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}-}
-		| Declarations pidentifier '[' num ']'					{do rest <- $1; return $ Array $2 $4 : rest} {-\ctx -> case $2 `elem` ctx of
-												False -> Array $2 $4 : $1 ($2 : ctx)
-												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}-}
-		| {- empty -}								{return []}
-{-
-Commands	: Commands Command							{\ctx -> ($2 ctx) : ($1 ctx)}
-		| Command								{\ctx -> [$1 ctx]}
+Declarations :: {State Context [Declaration]}
+Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; if $2 `boundIn` ctx
+											then error ("Variable named " ++ (show $2) ++ " already used!")
+											else do put $ (Scalar $2, Nothing) : ctx; return $ Scalar $2 : decls}
+		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; if $2 `boundIn` ctx
+											then error ("Variable named " ++ (show $2) ++ " already used!")
+											else do put $ (Array $2 $4, Nothing) : ctx; return $ Array $2 $4 : decls}
+		| {- empty -}							{return []}
 
-Command		: Identifier ":=" Expression ';'					{\ctx -> case (nameOfIdent $ $1 ctx) `elem` ctx of
-													True -> Asgn ($1 ctx) ($3 ctx)
-													_ -> error ("Unknown variable: " ++ (show $ nameOfIdent ($1 ctx)))}
-		| if Condition then Commands else Commands endif			{\ctx -> If ($2 ctx) (reverse ($4 ctx)) (reverse ($6 ctx))}
-		| while Condition do Commands endwhile					{\ctx -> While ($2 ctx) (reverse ($4 ctx))}
-		| for pidentifier from Value to Value do Commands endfor		{\ctx -> ForUp $2 ($4 ctx) ($6 ctx) (reverse ($8 ctx))}
-		| for pidentifier from Value downto Value do Commands endfor		{\ctx -> ForDown $2 ($4 ctx) ($6 ctx) (reverse ($8 ctx))}
-		| read Identifier ';'							{\ctx -> Read ($2 ctx)}
-		| write Value ';'							{\ctx -> Write ($2 ctx)}
-		| skip ';'								{\_ -> Skip}
 
-Expression	: Value									{\ctx -> Value ($1 ctx)}
-		| Value '+' Value							{\ctx -> Plus ($1 ctx) ($3 ctx)}
-		| Value '-' Value							{\ctx -> Minus ($1 ctx) ($3 ctx)}
-		| Value '*' Value							{\ctx -> Mul ($1 ctx) ($3 ctx)}
-		| Value '/' Value							{\ctx -> Div ($1 ctx) ($3 ctx)}
-		| Value '%' Value							{\ctx -> Mod ($1 ctx) ($3 ctx)}
+-- Fake commands
+--Commands : {- empty -}									{return []}
 
-Condition	: Value '=' Value							{\ctx -> Eq ($1 ctx) ($3 ctx)}
-		| Value "<>" Value							{\ctx -> Neq ($1 ctx) ($3 ctx)}
-		| Value '<' Value							{\ctx -> Lt ($1 ctx) ($3 ctx)}
-		| Value '>' Value							{\ctx -> Gt ($1 ctx) ($3 ctx)}
-		| Value "<=" Value							{\ctx -> Le ($1 ctx) ($3 ctx)}
-		| Value ">=" Value							{\ctx -> Ge ($1 ctx) ($3 ctx)}
+Commands :: {State Context [Command]}
+Commands	: Commands Command						{liftM2 (:) $2 $1} --{do cmds <- $1; cmd <- $2; return $ cmd : cmds} WATCH OUT
+		| Command							{fmap return $1} --{do cmd <- $1; return [cmd]}
 
-Value		: num									{\ctx -> Num $1}
-		| Identifier								{\ctx -> Identifier ($1 ctx)}
+Command :: {State Context Command}
+Command		: Identifier ":=" Expression ';' {do id <- $1; expr <- $3; ctx <- get; return $ Asgn id expr} {-case expr of
+	Value (Identifier name) -> if not $ name `boundIn` ctx
+		then error ("Right hand side not declared: " ++ (show id))
+		else if correctAsgn (Identifier name) ctx
+			then do put -} 
 
-Identifier	: pidentifier								{\ctx -> Pidentifier $1}
-		| pidentifier '[' pidentifier ']'					{\ctx -> ArrayPidentifier $1 $3}
-		| pidentifier '[' num ']'						{\ctx -> ArrayNum $1 $3}
--}
+		| if Condition then Commands else Commands endif		{liftM3 If $2 (fmap reverse $4) (fmap reverse $6)}
+		| while Condition do Commands endwhile				{liftM2 While $2 (fmap reverse $4)}
+		| for pidentifier from Value to Value do Commands endfor	{liftM4 ForUp (return $2) $4 $6 (fmap reverse $8)}
+		| for pidentifier from Value downto Value do Commands endfor	{liftM4 ForDown (return $2) $4 $6 (fmap reverse $8)}
+		| read Identifier ';'						{liftM Read $2}
+		| write Value ';'						{liftM Write $2}
+		| skip ';'							{return Skip}
+
+Expression :: {State Context Expression}
+Expression	: Value								{liftM Value $1}
+		| Value '+' Value						{liftM2 Plus $1 $3} --{do v <- $1; v' <- $3; return $ Plus v v'}
+		| Value '-' Value						{liftM2 Minus $1 $3} --{do v <- $1; v' <- $3; return $ Minus v v'}
+		| Value '*' Value						{liftM2 Mul $1 $3} --{do v <- $1; v' <- $3; return $ Mul v v'}
+		| Value '/' Value						{do v <- $1; v' <- $3; if v' == Num 0
+											then error "Division by zero!"
+											else do return $ Div v v'}
+		| Value '%' Value						{do v <- $1; v' <- $3; if v' == Num 0
+											then error "Division by zero!"
+											else do return $ Mod v v'}
+Condition :: {State Context Condition}
+Condition	: Value '=' Value						{liftM2 Eq $1 $3} --{do v <- $1; v' <- $3; return $ Eq v v'}
+		| Value "<>" Value						{liftM2 Neq $1 $3} --{do v <- $1; v' <- $3; return $ Neq v v'}
+		| Value '<' Value						{liftM2 Lt $1 $3} --{do v <- $1; v' <- $3; return $ Lt v v'}
+		| Value '>' Value						{liftM2 Gt $1 $3} --{do v <- $1; v' <- $3; return $ Gt v v'}
+		| Value "<=" Value						{liftM2 Le $1 $3} --{do v <- $1; v' <- $3; return $ Le v v'}
+		| Value ">=" Value						{liftM2 Ge $1 $3} --{do v <- $1; v' <- $3; return $ Ge v v'}
+
+Value :: {State Context Value}
+Value		: num								{return $ Num $1}
+		| Identifier							{fmap Identifier $1}
+
+Identifier :: {State Context Identifier}
+Identifier	: pidentifier							{state $ \ctx -> if $1 `boundIn` ctx
+											then (Pidentifier $1, ctx)
+											else error ("Unknown variable: " ++ (show $1))}
+		| pidentifier '[' pidentifier ']'				{state $ \ctx -> if $1 `boundIn` ctx
+											then if $3 `boundIn` ctx
+												then (ArrayPidentifier $1 $3, ctx)
+												else error ("Unknown variable: " ++ (show $3))
+											else error ("Unknown variable: " ++ (show $1))}
+		| pidentifier '[' num ']'					{state $ \ctx -> if $1 `boundIn` ctx
+											then (ArrayNum $1 $3, ctx)
+											else error ("Unknown variable: " ++ (show $1))}
+
 {
 --parseError :: [Token] -> a
 parseError _ = error "Errur wihle parsink"
@@ -125,6 +176,7 @@ data Program
 	= Program [Declaration] [Command]
 	deriving (Show)
 
+-- Declaration moved up
 data Declaration
 	= Scalar String
 	| Array String Integer
@@ -162,19 +214,19 @@ data Condition
 data Value
 	= Num Integer
 	| Identifier Identifier
-	deriving (Show)
+	deriving (Show, Eq)
 
 data Identifier
 	= Pidentifier String
 	| ArrayPidentifier String String
 	| ArrayNum String Integer
-	deriving (Show)
+	deriving (Show, Eq)
 
 nameOfIdent :: Identifier -> String
 nameOfIdent (Pidentifier str) = str
 nameOfIdent (ArrayPidentifier str _) = str
 nameOfIdent (ArrayNum str _) = str
 
---main = getContents >>= print . (\tokens -> evalState (parse tokens) []) . alexScanTokens
-main = putStrLn "Hello world"
+main = getContents >>= print . (\tokens -> evalState (parse tokens) []) . alexScanTokens
+--main = putStrLn "Hello world"
 }
