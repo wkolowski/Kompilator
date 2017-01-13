@@ -1,11 +1,17 @@
 {
-module Main where
+{-# XScopedTypeVariables #-}
+module Main (main, parse) where
+
+import Control.Monad.State
 
 import Lexer
+
+type Context = [String]
+
 }
 
 %name parse
--- %monad {Either String}
+%monad {State Context}
 %tokentype {Token}
 %error {parseError}
 
@@ -64,16 +70,18 @@ import Lexer
 -- %left '+' '-'
 -- %left '*' '/' '%'
 %%
-Program		: var Declarations begin Commands end					{\ctx -> Program (reverse ($2 ctx)) (reverse ($4 ctx))}
+Program :: {State Context Program}
+Program		: var Declarations begin {-Commands-} end					{do l <- $2; return $ Program (reverse l) []}--{\ctx -> Program (reverse (fst $ $2 ctx)) [] {-(reverse $4)-}}
 
-Declarations	: Declarations pidentifier						{\ctx -> case $2 `elem` ctx of
+--Declarations :: {State Context [Declaration]}
+Declarations	: Declarations pidentifier						{do rest <- $1; return $ Scalar $2 : rest} {-{\ctx -> case $2 `elem` ctx of
 												False -> Scalar $2 : ($1 ($2 : ctx))
-												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}
-		| Declarations pidentifier '[' num ']'					{\ctx -> case $2 `elem` ctx of
+												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}-}
+		| Declarations pidentifier '[' num ']'					{do rest <- $1; return $ Array $2 $4 : rest} {-\ctx -> case $2 `elem` ctx of
 												False -> Array $2 $4 : $1 ($2 : ctx)
-												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}
-		| {- empty -}								{\_ -> []}
-
+												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}-}
+		| {- empty -}								{return []}
+{-
 Commands	: Commands Command							{\ctx -> ($2 ctx) : ($1 ctx)}
 		| Command								{\ctx -> [$1 ctx]}
 
@@ -108,9 +116,9 @@ Value		: num									{\ctx -> Num $1}
 Identifier	: pidentifier								{\ctx -> Pidentifier $1}
 		| pidentifier '[' pidentifier ']'					{\ctx -> ArrayPidentifier $1 $3}
 		| pidentifier '[' num ']'						{\ctx -> ArrayNum $1 $3}
-
+-}
 {
-parseError :: [Token] -> a
+--parseError :: [Token] -> a
 parseError _ = error "Errur wihle parsink"
 
 data Program
@@ -167,5 +175,6 @@ nameOfIdent (Pidentifier str) = str
 nameOfIdent (ArrayPidentifier str _) = str
 nameOfIdent (ArrayNum str _) = str
 
-main = getContents >>= print . (\tokens -> parse tokens []) . alexScanTokens
+--main = getContents >>= print . (\tokens -> evalState (parse tokens) []) . alexScanTokens
+main = putStrLn "Hello world"
 }
