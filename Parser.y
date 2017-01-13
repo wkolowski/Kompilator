@@ -5,6 +5,7 @@ import Lexer
 }
 
 %name parse
+-- %monad {Either String}
 %tokentype {Token}
 %error {parseError}
 
@@ -63,44 +64,50 @@ import Lexer
 -- %left '+' '-'
 -- %left '*' '/' '%'
 %%
-Program		: var Declarations begin Commands end					{Program (reverse $2) (reverse $4)}
+Program		: var Declarations begin Commands end					{\ctx -> Program (reverse ($2 ctx)) (reverse ($4 ctx))}
 
-Declarations	: Declarations pidentifier						{Scalar $2 : $1}
-		| Declarations pidentifier '[' num ']'					{Array $2 $4 : $1}
-		| {- empty -}								{[]}
+Declarations	: Declarations pidentifier						{\ctx -> case $2 `elem` ctx of
+												False -> Scalar $2 : ($1 ($2 : ctx))
+												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}
+		| Declarations pidentifier '[' num ']'					{\ctx -> case $2 `elem` ctx of
+												False -> Array $2 $4 : $1 ($2 : ctx)
+												_ -> error ("Variable named " ++ (show $2) ++ " already used!")}
+		| {- empty -}								{\_ -> []}
 
-Commands	: Commands Command							{$2 : $1}
-		| Command								{[$1]}
+Commands	: Commands Command							{\ctx -> ($2 ctx) : ($1 ctx)}
+		| Command								{\ctx -> [$1 ctx]}
 
-Command		: Identifier ":=" Expression ';'					{Asgn $1 $3}
-		| if Condition then Commands else Commands endif			{If $2 (reverse $4) (reverse $6)}
-		| while Condition do Commands endwhile					{While $2 (reverse $4)}
-		| for pidentifier from Value to Value do Commands endfor		{ForUp $2 $4 $6 (reverse $8)}
-		| for pidentifier from Value downto Value do Commands endfor		{ForDown $2 $4 $6 (reverse $8)}
-		| read Identifier ';'							{Read $2}
-		| write Value ';'							{Write $2}
-		| skip ';'								{Skip}
+Command		: Identifier ":=" Expression ';'					{\ctx -> case (nameOfIdent $ $1 ctx) `elem` ctx of
+													True -> Asgn ($1 ctx) ($3 ctx)
+													_ -> error ("Unknown variable: " ++ (show $ nameOfIdent ($1 ctx)))}
+		| if Condition then Commands else Commands endif			{\ctx -> If ($2 ctx) (reverse ($4 ctx)) (reverse ($6 ctx))}
+		| while Condition do Commands endwhile					{\ctx -> While ($2 ctx) (reverse ($4 ctx))}
+		| for pidentifier from Value to Value do Commands endfor		{\ctx -> ForUp $2 ($4 ctx) ($6 ctx) (reverse ($8 ctx))}
+		| for pidentifier from Value downto Value do Commands endfor		{\ctx -> ForDown $2 ($4 ctx) ($6 ctx) (reverse ($8 ctx))}
+		| read Identifier ';'							{\ctx -> Read ($2 ctx)}
+		| write Value ';'							{\ctx -> Write ($2 ctx)}
+		| skip ';'								{\_ -> Skip}
 
-Expression	: Value									{Value $1}
-		| Value '+' Value							{Plus $1 $3}
-		| Value '-' Value							{Minus $1 $3}
-		| Value '*' Value							{Mul $1 $3}
-		| Value '/' Value							{Div $1 $3}
-		| Value '%' Value							{Mod $1 $3}
+Expression	: Value									{\ctx -> Value ($1 ctx)}
+		| Value '+' Value							{\ctx -> Plus ($1 ctx) ($3 ctx)}
+		| Value '-' Value							{\ctx -> Minus ($1 ctx) ($3 ctx)}
+		| Value '*' Value							{\ctx -> Mul ($1 ctx) ($3 ctx)}
+		| Value '/' Value							{\ctx -> Div ($1 ctx) ($3 ctx)}
+		| Value '%' Value							{\ctx -> Mod ($1 ctx) ($3 ctx)}
 
-Condition	: Value '=' Value							{Eq $1 $3}
-		| Value "<>" Value							{Neq $1 $3}
-		| Value '<' Value							{Lt $1 $3}
-		| Value '>' Value							{Gt $1 $3}
-		| Value "<=" Value							{Le $1 $3}
-		| Value ">=" Value							{Ge $1 $3}
+Condition	: Value '=' Value							{\ctx -> Eq ($1 ctx) ($3 ctx)}
+		| Value "<>" Value							{\ctx -> Neq ($1 ctx) ($3 ctx)}
+		| Value '<' Value							{\ctx -> Lt ($1 ctx) ($3 ctx)}
+		| Value '>' Value							{\ctx -> Gt ($1 ctx) ($3 ctx)}
+		| Value "<=" Value							{\ctx -> Le ($1 ctx) ($3 ctx)}
+		| Value ">=" Value							{\ctx -> Ge ($1 ctx) ($3 ctx)}
 
-Value		: num									{Num $1}
-		| Identifier								{Identifier $1}
+Value		: num									{\ctx -> Num $1}
+		| Identifier								{\ctx -> Identifier ($1 ctx)}
 
-Identifier	: pidentifier								{Pidentifier $1}
-		| pidentifier '[' pidentifier ']'					{ArrayPidentifier $1 $3}
-		| pidentifier '[' num ']'						{ArrayNum $1 $3}
+Identifier	: pidentifier								{\ctx -> Pidentifier $1}
+		| pidentifier '[' pidentifier ']'					{\ctx -> ArrayPidentifier $1 $3}
+		| pidentifier '[' num ']'						{\ctx -> ArrayNum $1 $3}
 
 {
 parseError :: [Token] -> a
@@ -155,5 +162,10 @@ data Identifier
 	| ArrayNum String Integer
 	deriving (Show)
 
-main = getContents >>= print . parse . alexScanTokens
+nameOfIdent :: Identifier -> String
+nameOfIdent (Pidentifier str) = str
+nameOfIdent (ArrayPidentifier str _) = str
+nameOfIdent (ArrayNum str _) = str
+
+main = getContents >>= print . (\tokens -> parse tokens []) . alexScanTokens
 }

@@ -86,6 +86,4 @@ data Token
 test = do
 	s <- getContents
 	print (alexScanTokens s)
-
---main = test
 }
