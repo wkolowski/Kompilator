@@ -7,6 +7,66 @@ import Lexer
 
 type Context = [(Declaration, Maybe Int)]
 
+data Program
+	= Program [Declaration] [Command]
+	deriving (Show)
+
+data Declaration
+	= Scalar String
+	| Array String Integer
+	deriving (Show)
+
+data Command
+	= Asgn Identifier Expression
+	| If Condition [Command] [Command]
+	| While Condition [Command]
+	| ForUp String Value Value [Command]
+	| ForDown String Value Value [Command]
+	| Read Identifier
+	| Write Value
+	| Skip
+	deriving (Show)
+
+data Expression
+	= Value Value
+	| Plus Value Value
+	| Minus Value Value
+	| Mul Value Value
+	| Div Value Value
+	| Mod Value Value
+	deriving (Show)
+
+data Condition
+	= Eq Value Value
+	| Neq Value  Value
+	| Lt Value Value
+	| Gt Value Value
+	| Le Value Value
+	| Ge Value Value
+	deriving (Show)
+
+data Value
+	= Num Integer
+	| Identifier Identifier
+	deriving (Show, Eq)
+
+data Identifier
+	= Pidentifier String
+	| ArrayPidentifier String String
+	| ArrayNum String Integer
+	deriving (Eq)
+
+instance Show Identifier where
+	show (Pidentifier name) = name
+	show (ArrayPidentifier name index) = name ++ "[" ++ index ++ "]"
+	show (ArrayNum name index) = name ++ "[" ++ (show index) ++ "]"
+
+nameOfIdent :: Identifier -> String
+nameOfIdent (Pidentifier str) = str
+nameOfIdent (ArrayPidentifier str _) = str
+nameOfIdent (ArrayNum str _) = str
+
+
 boundIn :: String -> Context -> Bool
 var `boundIn` [] = False
 var `boundIn` ((decl, _):decls) = case decl of
@@ -23,6 +83,9 @@ correctAsgn id ((Array name _, _):decls) = case id of
 	ArrayNum name' _ -> name == name' || correctAsgn id decls
 	_ -> correctAsgn id decls
 
+--isInitializedIn :: Identifier -> Context -> Bool
+--isInitializedIn _ [] = False
+--isInitializedIn id ((decl,
 {-
 correctAsgn id@(Pidentifier name) ((decl, _):decls) = case decl of
 	Scalar name' -> name == name' || correctAsgn id decls
@@ -118,7 +181,7 @@ Commands	: Commands Command						{liftM2 (:) $2 $1} --{do cmds <- $1; cmd <- $2;
 		| Command							{fmap return $1} --{do cmd <- $1; return [cmd]}
 
 Command :: {State Context Command}
-Command		: Identifier ":=" Expression ';' {do id <- $1; expr <- $3; ctx <- get; return $ Asgn id expr} {-case expr of
+Command		: Identifier ":=" Expression ';' 				{liftM2 Asgn $1 $3} {-{do id <- $1; expr <- $3; ctx <- get; return $ Asgn id expr} {case expr of
 	Value (Identifier name) -> if not $ name `boundIn` ctx
 		then error ("Right hand side not declared: " ++ (show id))
 		else if correctAsgn (Identifier name) ctx
@@ -129,14 +192,19 @@ Command		: Identifier ":=" Expression ';' {do id <- $1; expr <- $3; ctx <- get; 
 		| for pidentifier from Value to Value do Commands endfor	{liftM4 ForUp (return $2) $4 $6 (fmap reverse $8)}
 		| for pidentifier from Value downto Value do Commands endfor	{liftM4 ForDown (return $2) $4 $6 (fmap reverse $8)}
 		| read Identifier ';'						{liftM Read $2}
-		| write Value ';'						{liftM Write $2}
+		| write Value ';'						{liftM Write $2} {-{do v <- $2; ctx <- get; case v of
+											Num n -> return $ Write v
+											Identifier id -> if id `isInitializedIn` ctx
+												then do return $ Write v
+												else error (show id ++ " is uninitialized!")}-}
+
 		| skip ';'							{return Skip}
 
 Expression :: {State Context Expression}
 Expression	: Value								{liftM Value $1}
-		| Value '+' Value						{liftM2 Plus $1 $3} --{do v <- $1; v' <- $3; return $ Plus v v'}
-		| Value '-' Value						{liftM2 Minus $1 $3} --{do v <- $1; v' <- $3; return $ Minus v v'}
-		| Value '*' Value						{liftM2 Mul $1 $3} --{do v <- $1; v' <- $3; return $ Mul v v'}
+		| Value '+' Value						{liftM2 Plus $1 $3}
+		| Value '-' Value						{liftM2 Minus $1 $3}
+		| Value '*' Value						{liftM2 Mul $1 $3}
 		| Value '/' Value						{do v <- $1; v' <- $3; if v' == Num 0
 											then error "Division by zero!"
 											else do return $ Div v v'}
@@ -144,89 +212,33 @@ Expression	: Value								{liftM Value $1}
 											then error "Division by zero!"
 											else do return $ Mod v v'}
 Condition :: {State Context Condition}
-Condition	: Value '=' Value						{liftM2 Eq $1 $3} --{do v <- $1; v' <- $3; return $ Eq v v'}
-		| Value "<>" Value						{liftM2 Neq $1 $3} --{do v <- $1; v' <- $3; return $ Neq v v'}
-		| Value '<' Value						{liftM2 Lt $1 $3} --{do v <- $1; v' <- $3; return $ Lt v v'}
-		| Value '>' Value						{liftM2 Gt $1 $3} --{do v <- $1; v' <- $3; return $ Gt v v'}
-		| Value "<=" Value						{liftM2 Le $1 $3} --{do v <- $1; v' <- $3; return $ Le v v'}
-		| Value ">=" Value						{liftM2 Ge $1 $3} --{do v <- $1; v' <- $3; return $ Ge v v'}
+Condition	: Value '=' Value						{liftM2 Eq $1 $3}
+		| Value "<>" Value						{liftM2 Neq $1 $3}
+		| Value '<' Value						{liftM2 Lt $1 $3}
+		| Value '>' Value						{liftM2 Gt $1 $3}
+		| Value "<=" Value						{liftM2 Le $1 $3}
+		| Value ">=" Value						{liftM2 Ge $1 $3}
 
 Value :: {State Context Value}
 Value		: num								{return $ Num $1}
-		| Identifier							{fmap Identifier $1}
+		| Identifier							{liftM Identifier $1}
 
 Identifier :: {State Context Identifier}
 Identifier	: pidentifier							{state $ \ctx -> if $1 `boundIn` ctx
 											then (Pidentifier $1, ctx)
-											else error ("Unknown variable: " ++ (show $1))}
+											else error ("Undeclared variable: " ++ (show $1))}
 		| pidentifier '[' pidentifier ']'				{state $ \ctx -> if $1 `boundIn` ctx
 											then if $3 `boundIn` ctx
 												then (ArrayPidentifier $1 $3, ctx)
 												else error ("Unknown variable: " ++ (show $3))
-											else error ("Unknown variable: " ++ (show $1))}
+											else error ("Undeclared variable: " ++ (show $1))}
 		| pidentifier '[' num ']'					{state $ \ctx -> if $1 `boundIn` ctx
 											then (ArrayNum $1 $3, ctx)
-											else error ("Unknown variable: " ++ (show $1))}
+											else error ("Undeclared variable: " ++ (show $1))}
 
 {
 --parseError :: [Token] -> a
 parseError _ = error "Errur wihle parsink"
 
-data Program
-	= Program [Declaration] [Command]
-	deriving (Show)
-
--- Declaration moved up
-data Declaration
-	= Scalar String
-	| Array String Integer
-	deriving (Show)
-
-data Command
-	= Asgn Identifier Expression
-	| If Condition [Command] [Command]
-	| While Condition [Command]
-	| ForUp String Value Value [Command]
-	| ForDown String Value Value [Command]
-	| Read Identifier
-	| Write Value
-	| Skip
-	deriving (Show)
-
-data Expression
-	= Value Value
-	| Plus Value Value
-	| Minus Value Value
-	| Mul Value Value
-	| Div Value Value
-	| Mod Value Value
-	deriving (Show)
-
-data Condition
-	= Eq Value Value
-	| Neq Value  Value
-	| Lt Value Value
-	| Gt Value Value
-	| Le Value Value
-	| Ge Value Value
-	deriving (Show)
-
-data Value
-	= Num Integer
-	| Identifier Identifier
-	deriving (Show, Eq)
-
-data Identifier
-	= Pidentifier String
-	| ArrayPidentifier String String
-	| ArrayNum String Integer
-	deriving (Show, Eq)
-
-nameOfIdent :: Identifier -> String
-nameOfIdent (Pidentifier str) = str
-nameOfIdent (ArrayPidentifier str _) = str
-nameOfIdent (ArrayNum str _) = str
-
 main = getContents >>= print . (\tokens -> evalState (parse tokens) []) . alexScanTokens
---main = putStrLn "Hello world"
 }
