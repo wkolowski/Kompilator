@@ -1,0 +1,6 @@
+VAR
+  a b[10]
+BEGIN
+  a := 42;
+  b[a] := 1000;
+END

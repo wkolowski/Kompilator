@@ -1,0 +1,5 @@
+VAR
+  a
+BEGIN
+  a[42] := 7 * 8;
+END

@@ -116,15 +116,10 @@ isInitializedIn id ctx = case id of
 		Just Initialized -> True {- Watch out! -}
 		Just (HasValue n) -> ArrayNum name n `isInitializedIn` ctx
 
-{-case Map.lookup indexName (scalars ctx) of
-		Nothing -> False
-		Just index -> ArrayNum name index `isInitializedIn` ctx-}
-
 evalVarState :: VarState -> Maybe Integer
 evalVarState vst = case vst of
-	Uninitialized -> Nothing
-	Initialized -> Nothing
 	HasValue n -> Just n
+	_ -> Nothing
 
 evalIdentifier :: Identifier -> Context -> Maybe Integer
 evalIdentifier id ctx = case id of
@@ -150,6 +145,41 @@ eval (Minus e1 e2) ctx = liftM2 (-) (evalValue e1 ctx) (evalValue e2 ctx)
 eval (Mul e1 e2) ctx = liftM2 (*) (evalValue e1 ctx) (evalValue e2 ctx)
 eval (Div e1 e2) ctx = liftM2 (div) (evalValue e1 ctx) (evalValue e2 ctx)
 eval (Mod e1 e2) ctx = liftM2 (mod) (evalValue e1 ctx) (evalValue e2 ctx)
+
+
+data IdentState = Undeclared | NotAScalar | NotAnArray | IndexUndeclared | IndexUninitialized | IndexOutOfBounds Size | IndexInitialized | IsVar VarState deriving (Eq)
+
+identState :: Identifier -> Context -> IdentState
+identState id ctx = case id of
+	Pidentifier name -> case Map.lookup name (scalars ctx) of
+		Nothing -> case Map.lookup name (arrays ctx) of
+			Nothing -> Undeclared
+			_ -> NotAScalar
+		Just vst -> IsVar vst
+	ArrayNum name index -> case Map.lookup name (arrays ctx) of
+		Nothing -> case Map.lookup name (scalars ctx) of
+			Nothing -> Undeclared
+			_ -> NotAnArray
+		Just (size, array) -> if not $ 0 <= index && index < size
+			then IndexOutOfBounds size
+			else case Map.lookup index array of
+				Nothing -> error "This shouldn't happen"
+				Just vst -> IsVar vst
+	ArrayPidentifier name indexName -> case Map.lookup indexName (scalars ctx) of
+		Nothing -> IndexUndeclared
+		Just vst -> case vst of
+			Uninitialized -> IndexUninitialized
+			Initialized -> IndexInitialized
+			HasValue index -> identState (ArrayNum name index) ctx
+			 
+handleIdentError :: Identifier -> String -> String -> Context -> (Identifier, Context)
+handleIdentError id str1 str3 ctx = case identState id ctx of
+	Undeclared -> error ("Undeclared variable: " ++ str1)
+	NotAnArray -> error (str1 ++ " is not an array!")
+	IndexUndeclared -> error ("Undeclared variable: " ++ str3)
+	IndexUninitialized -> error ("Index " ++ str3 ++ " not initialized!")
+	IndexOutOfBounds size -> error ("Index " ++ str3 ++ " out of bounds 0-" ++ (show size) ++ ".")
+	_ -> (id, ctx)
 
 }
 
@@ -270,18 +300,9 @@ Value		: num								{return $ Num $1}
 		| Identifier							{liftM Identifier $1}
 
 Identifier :: {State Context Identifier}
-Identifier	: pidentifier							{state $ \ctx -> if $1 `boundIn` ctx
-											then (Pidentifier $1, ctx)
-											else error ("Undeclared variable: " ++ (show $1))}
-		| pidentifier '[' pidentifier ']'				{state $ \ctx -> if $1 `boundIn` ctx
-											then if $3 `boundIn` ctx
-												then (ArrayPidentifier $1 $3, ctx)
-												else error ("Undeclared variable: " ++ (show $3))
-											else error ("Undeclared variable: " ++ (show $1))}
-		| pidentifier '[' num ']'					{state $ \ctx -> if $1 `boundIn` ctx
-											then (ArrayNum $1 $3, ctx)
-											else error ("Undeclared variable: " ++ (show $1))}
-
+Identifier	: pidentifier							{state $ \ctx -> handleIdentError (Pidentifier $1) $1 "" ctx}
+		| pidentifier '[' pidentifier ']'				{state $ \ctx -> handleIdentError (ArrayPidentifier $1 $3) $1 $3 ctx}
+		| pidentifier '[' num ']'					{state $ \ctx -> handleIdentError (ArrayNum $1 $3) $1 (show $3) ctx}
 {
 --parseError :: [Token] -> a
 parseError _ = error "Errur wihle parsink"
