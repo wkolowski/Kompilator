@@ -71,50 +71,70 @@ nameOfIdent (Pidentifier name) = name
 nameOfIdent (ArrayPidentifier name _) = name
 nameOfIdent (ArrayNum name _) = name
 
+-- Variable state can be either undeclared, uninitialized, initialized (but
+-- without known value) or initialized with a known value.
+-- Undeclared is represented by Nothing when looking the variable up in the
+-- context.
+data VarState = Uninitialized | Initialized | HasValue Integer deriving (Eq)
+
 type Name = String
-type Bounds = Integer
+type Size = Integer
 
 -- Context keeps track of declared variables. It also knows whether
 -- the variable has been initialized.
-data Context = Context {scalars :: Map.Map Name (Maybe Integer), arrays :: Map.Map Name (Bounds, Map.Map Integer Integer)}
+data Context = Context {scalars :: Map.Map Name VarState, arrays :: Map.Map Name (Size, Map.Map Integer VarState)}
 
 emptyContext = Context {scalars = Map.empty, arrays = Map.empty}
 
 -- Adds a new scalar variable to the context.
 newScalar :: String -> Context -> Context
-newScalar name ctx = ctx {scalars = Map.insert name Nothing (scalars ctx)}
+newScalar name ctx = ctx {scalars = Map.insert name Uninitialized (scalars ctx)}
 
 -- Adds a new array variable to the context.
-newArray :: String -> Bounds -> Context -> Context
-newArray name bounds ctx = ctx {arrays = Map.insert name (bounds, Map.empty) (arrays ctx)}
+newArray :: String -> Size -> Context -> Context
+newArray name size ctx = ctx {arrays = Map.insert name (size, Map.fromList (zip [0..size - 1] (repeat Uninitialized))) (arrays ctx)}
 
 -- Checks whether a variable has been declared.
 boundIn :: String -> Context -> Bool
 name `boundIn` ctx = isJust (Map.lookup name (scalars ctx)) || isJust (Map.lookup name (arrays ctx))
 
 -- Checks whether an identifier has been initialized.
--- Scalar variables are initialized if they have a value.
--- Array variables indexed by a constant are initialized if
---	 they have a value for that particular constant.
--- Array variables indexed by scalar variables are initialized
--- 	 if the scalar variable is initialized and the array
---	 variable has a value for that particular index.
+isInitialized :: VarState -> Bool
+isInitialized vst = case vst of
+	Uninitialized -> False
+	_ -> True
+
 isInitializedIn :: Identifier -> Context -> Bool
 isInitializedIn id ctx = case id of
-	Pidentifier name -> isJust (join $ Map.lookup name (scalars ctx))
+	Pidentifier name -> fmap isInitialized (Map.lookup name (scalars ctx)) == Just True
 	ArrayNum name index -> case Map.lookup name (arrays ctx) of
 		Nothing -> False
-		Just (bounds, array) -> isJust $ Map.lookup index array
-	ArrayPidentifier name indexName -> case join $ Map.lookup indexName (scalars ctx) of
+		Just (size, array) -> 0 <= index && index < size && fmap isInitialized (Map.lookup index array) == Just True
+	ArrayPidentifier name indexName -> case Map.lookup indexName (scalars ctx) of
 		Nothing -> False
-		Just index -> ArrayNum name index `isInitializedIn` ctx
+		Just Uninitialized -> False
+		Just Initialized -> True {- Watch out! -}
+		Just (HasValue n) -> ArrayNum name n `isInitializedIn` ctx
+
+{-case Map.lookup indexName (scalars ctx) of
+		Nothing -> False
+		Just index -> ArrayNum name index `isInitializedIn` ctx-}
+
+evalVarState :: VarState -> Maybe Integer
+evalVarState vst = case vst of
+	Uninitialized -> Nothing
+	Initialized -> Nothing
+	HasValue n -> Just n
 
 evalIdentifier :: Identifier -> Context -> Maybe Integer
 evalIdentifier id ctx = case id of
-	Pidentifier name -> join $ Map.lookup name (scalars ctx)
+	Pidentifier name -> do
+		vst <- Map.lookup name (scalars ctx)
+		evalVarState vst
 	ArrayNum name index -> do
-		(bounds, array) <- Map.lookup name (arrays ctx)
-		Map.lookup index array
+		(size, array) <- Map.lookup name (arrays ctx)
+		vst <- Map.lookup index array
+		evalVarState vst
 	ArrayPidentifier name indexName -> do
 		index <- evalIdentifier (Pidentifier indexName) ctx
 		evalIdentifier (ArrayNum name index) ctx
