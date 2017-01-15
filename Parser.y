@@ -94,9 +94,30 @@ newScalar name ctx = ctx {scalars = Map.insert name Uninitialized (scalars ctx)}
 newArray :: String -> Size -> Context -> Context
 newArray name size ctx = ctx {arrays = Map.insert name (size, Map.fromList (zip [0..size - 1] (repeat Uninitialized))) (arrays ctx)}
 
+-- Checks whether a scalar was already declared.
+scalarDeclared :: String -> Context -> Bool
+scalarDeclared name ctx = isJust $ Map.lookup name (scalars ctx)
+
+arrayDeclared :: String -> Context -> Bool
+arrayDeclared name ctx = isJust $ Map.lookup name (arrays ctx)
+
+scalarInitialized :: String -> Context -> Bool
+scalarInitialized name ctx = case Map.lookup name (scalars ctx) of
+	Nothing -> False
+	Just Uninitialized -> False
+	_ -> True
+
+initScalar :: String -> Context -> Context
+initScalar name ctx = case Map.lookup name (scalars ctx) of
+	Nothing -> error "Tried to initialize undeclared scalar!"
+	Just vst -> case vst of
+		Uninitialized -> ctx {scalars = Map.insert name Initialized (scalars ctx)}
+		_ -> ctx
+
+
 -- Checks whether a variable has been declared.
-boundIn :: String -> Context -> Bool
-name `boundIn` ctx = isJust (Map.lookup name (scalars ctx)) || isJust (Map.lookup name (arrays ctx))
+--boundIn :: String -> Context -> Bool
+--name `boundIn` ctx = scalarDeclared name ctx || arrayDeclared name ctx
 
 -- Checks whether an identifier has been initialized.
 isInitialized :: VarState -> Bool
@@ -146,7 +167,6 @@ eval (Mul e1 e2) ctx = liftM2 (*) (evalValue e1 ctx) (evalValue e2 ctx)
 eval (Div e1 e2) ctx = liftM2 (div) (evalValue e1 ctx) (evalValue e2 ctx)
 eval (Mod e1 e2) ctx = liftM2 (mod) (evalValue e1 ctx) (evalValue e2 ctx)
 
-
 data IdentState = Undeclared | NotAScalar | NotAnArray | IndexUndeclared | IndexUninitialized | IndexOutOfBounds Size | IndexInitialized | IsVar VarState deriving (Eq)
 
 identState :: Identifier -> Context -> IdentState
@@ -175,9 +195,10 @@ identState id ctx = case id of
 handleIdentError :: Identifier -> String -> String -> Context -> (Identifier, Context)
 handleIdentError id str1 str3 ctx = case identState id ctx of
 	Undeclared -> error ("Undeclared variable: " ++ str1)
+	NotAScalar -> error (str1 ++ " is not a scalar!")
 	NotAnArray -> error (str1 ++ " is not an array!")
 	IndexUndeclared -> error ("Undeclared variable: " ++ str3)
-	IndexUninitialized -> error ("Index " ++ str3 ++ " not initialized!")
+	IndexUninitialized -> error ("Index " ++ str3 ++ " of " ++ (str1 ++ "[" ++ str3 ++ "]") ++ " not initialized!")
 	IndexOutOfBounds size -> error ("Index " ++ str3 ++ " out of bounds 0-" ++ (show size) ++ ".")
 	_ -> (id, ctx)
 
@@ -244,10 +265,10 @@ Program :: {State Context Program}
 Program		: var Declarations begin Commands end				{liftM2 Program (fmap reverse $2) (fmap reverse $4)}
 
 Declarations :: {State Context [Declaration]}
-Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; if $2 `boundIn` ctx
+Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; if scalarDeclared $2 ctx
 											then error ("Variable named " ++ (show $2) ++ " already used!")
 											else do put $ newScalar $2 ctx; return $ Scalar $2 : decls}
-		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; if $2 `boundIn` ctx
+		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; if arrayDeclared $2 ctx
 											then error ("Variable named " ++ (show $2) ++ " already used!")
 											else do put $ newArray $2 $4 ctx; return $ Array $2 $4 : decls}
 		| {- empty -}							{return []}
@@ -257,17 +278,14 @@ Commands	: Commands Command						{liftM2 (:) $2 $1}
 		| Command							{fmap return $1}
 
 Command :: {State Context Command}
-Command		: Identifier ":=" Expression ';' 				{liftM2 Asgn $1 $3} {-{do id <- $1; expr <- $3; ctx <- get; return $ Asgn id expr} {case expr of
-	Value (Identifier name) -> if not $ name `boundIn` ctx
-		then error ("Right hand side not declared: " ++ (show id))
-		else if correctAsgn (Identifier name) ctx
-			then do put -} 
+Command		: Identifier ":=" Expression ';' 				{liftM2 Asgn $1 $3}
 
 		| if Condition then Commands else Commands endif		{liftM3 If $2 (fmap reverse $4) (fmap reverse $6)}
 		| while Condition do Commands endwhile				{liftM2 While $2 (fmap reverse $4)}
 		| for pidentifier from Value to Value do Commands endfor	{liftM4 ForUp (return $2) $4 $6 (fmap reverse $8)}
 		| for pidentifier from Value downto Value do Commands endfor	{liftM4 ForDown (return $2) $4 $6 (fmap reverse $8)}
-		| read Identifier ';'						{liftM Read $2}
+		| read Identifier ';'						{liftM Read $2} {-{state $ \ctx -> case $2 of
+											Pidentifier name -> -}
 		| write Value ';'						{do v <- $2; ctx <- get; case v of
 											Num n -> do return $ Write v
 											Identifier ident -> case id evalValue v ctx of
