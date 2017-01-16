@@ -1,5 +1,5 @@
 {
-module Parser {-(parse, Context, emptyContext)-} where
+module Parser where
 
 import Control.Monad.State			-- Needed to carry context along while parsing.
 import qualified Data.Map.Strict as Map		-- Needed to implement context.
@@ -82,9 +82,9 @@ type Size = Integer
 
 -- Context keeps track of declared variables. It also knows whether
 -- the variable has been initialized.
-data Context = Context {scalars :: Map.Map Name VarState, arrays :: Map.Map Name (Size, Map.Map Integer VarState)}
+data Context = Context {scalars :: Map.Map Name VarState, arrays :: Map.Map Name (Size, Map.Map Integer VarState), iterators :: Map.Map Name VarState}
 
-emptyContext = Context {scalars = Map.empty, arrays = Map.empty}
+emptyContext = Context {scalars = Map.empty, arrays = Map.empty, iterators = Map.empty}
 
 -- Adds a new scalar variable to the context.
 newScalar :: String -> Context -> Context
@@ -94,6 +94,10 @@ newScalar name ctx = ctx {scalars = Map.insert name Uninitialized (scalars ctx)}
 newArray :: String -> Size -> Context -> Context
 newArray name size ctx = ctx {arrays = Map.insert name (size, Map.fromList (zip [0..size - 1] (repeat Uninitialized))) (arrays ctx)}
 
+-- Adds a new iterator variable to the context.
+addIterator :: String -> Context -> Context
+addIterator name ctx = ctx {iterators = Map.insert name Initialized (iterators ctx)}
+
 -- Checks whether a scalar was already declared.
 scalarDeclared :: String -> Context -> Bool
 scalarDeclared name ctx = isJust $ Map.lookup name (scalars ctx)
@@ -101,46 +105,61 @@ scalarDeclared name ctx = isJust $ Map.lookup name (scalars ctx)
 arrayDeclared :: String -> Context -> Bool
 arrayDeclared name ctx = isJust $ Map.lookup name (arrays ctx)
 
-scalarInitialized :: String -> Context -> Bool
-scalarInitialized name ctx = case Map.lookup name (scalars ctx) of
-	Nothing -> False
-	Just Uninitialized -> False
-	_ -> True
+iteratorDeclared :: String -> Context -> Bool
+iteratorDeclared name ctx = isJust $ Map.lookup name (iterators ctx)
 
-initScalar :: String -> Context -> Context
-initScalar name ctx = case Map.lookup name (scalars ctx) of
-	Nothing -> error "Tried to initialize undeclared scalar!"
-	Just vst -> case vst of
-		Uninitialized -> ctx {scalars = Map.insert name Initialized (scalars ctx)}
-		_ -> ctx
+isDeclared :: String -> Context -> Bool
+isDeclared name ctx = scalarDeclared name ctx || arrayDeclared name ctx || iteratorDeclared name ctx
 
+getScalarOrIter :: String -> Context -> Maybe VarState
+getScalarOrIter name ctx = case Map.lookup name (iterators ctx) of
+	Nothing -> Map.lookup name (scalars ctx)
+	Just vst -> Just vst
 
--- Checks whether a variable has been declared.
---boundIn :: String -> Context -> Bool
---name `boundIn` ctx = scalarDeclared name ctx || arrayDeclared name ctx
+verifyScalarOrIter :: String -> Context -> (Identifier, Context)
+verifyScalarOrIter name ctx
+	| arrayDeclared name ctx = error $ show name ++ " is not a scalar."
+	| not (scalarDeclared name ctx) && not (iteratorDeclared name ctx) = error $ "Undeclared variable " ++ (show name) ++ "."
+	| otherwise = (Pidentifier name, ctx)
 
--- Checks whether an identifier has been initialized.
-isInitialized :: VarState -> Bool
-isInitialized vst = case vst of
-	Uninitialized -> False
-	_ -> True
+verifyArrayNum :: String -> Integer -> Context -> (Identifier, Context)
+verifyArrayNum name index ctx
+	| scalarDeclared name ctx || iteratorDeclared name ctx = error $ show name ++ " is not an array."
+	| not (arrayDeclared name ctx) = error $ "Undeclared variable " ++ (show name) ++ "."
+	| otherwise = case Map.lookup name (arrays ctx) of
+		Nothing -> error $ "Undeclared variable " ++ (show name) ++ "."
+		Just (size, array) -> if 0 <= index && index < size
+			then (ArrayNum name index, ctx)
+			else error $ "Index " ++ (show index) ++ " out of bounds 0-" ++ (show $ size - 1) ++ "."
 
-isInitializedIn :: Identifier -> Context -> Bool
-isInitializedIn id ctx = case id of
-	Pidentifier name -> fmap isInitialized (Map.lookup name (scalars ctx)) == Just True
-	ArrayNum name index -> case Map.lookup name (arrays ctx) of
-		Nothing -> False
-		Just (size, array) -> 0 <= index && index < size && fmap isInitialized (Map.lookup index array) == Just True
-	ArrayPidentifier name indexName -> case Map.lookup indexName (scalars ctx) of
-		Nothing -> False
-		Just Uninitialized -> False
-		Just Initialized -> True {- Watch out! -}
-		Just (HasValue n) -> ArrayNum name n `isInitializedIn` ctx
+verifyArrayPidentifier :: String -> String -> Context -> (Identifier, Context)
+verifyArrayPidentifier name indexName ctx = case Map.lookup name (arrays ctx) of
+	Nothing -> if scalarDeclared name ctx || iteratorDeclared name ctx
+		then error $ show name ++ " is not an array."
+		else error $ "Undeclared variable " ++ (show name) ++ "."
 
-evalVarState :: VarState -> Maybe Integer
-evalVarState vst = case vst of
-	HasValue n -> Just n
-	_ -> Nothing
+	Just (size, array) -> case getScalarOrIter indexName ctx of
+		Nothing -> if arrayDeclared indexName ctx
+			then error $ "The index " ++ (show indexName) ++ " is not a scalar."
+			else error $ "Undeclared variable " ++ (show indexName) ++ "."
+
+		Just Uninitialized -> error $ "Cannot reference array " ++ (show name) ++ " with uninitialized index " ++ (show indexName) ++ "."
+		Just Initialized -> (ArrayPidentifier name indexName, ctx)
+		Just (HasValue index) -> if 0 <= index && index < size
+			then (ArrayPidentifier name indexName, ctx)
+			else error $ "Index " ++ (show indexName) ++ " out of bounds 0-" ++ (show $ size - 1) ++ "."
+
+eval :: Expression -> Context -> Maybe Integer
+eval (Value v) ctx = evalValue v ctx
+eval (Plus e1 e2) ctx = liftM2 (+) (evalValue e1 ctx) (evalValue e2 ctx)
+eval (Minus e1 e2) ctx = liftM2 (-) (evalValue e1 ctx) (evalValue e2 ctx)
+eval (Mul e1 e2) ctx = liftM2 (*) (evalValue e1 ctx) (evalValue e2 ctx)
+eval (Div e1 e2) ctx = liftM2 (div) (evalValue e1 ctx) (evalValue e2 ctx)
+eval (Mod e1 e2) ctx = liftM2 (mod) (evalValue e1 ctx) (evalValue e2 ctx)
+
+evalValue :: Value -> Context -> Maybe Integer
+evalValue (Num n) _ = Just n
+evalValue (Identifier id) ctx = evalIdentifier id ctx
 
 evalIdentifier :: Identifier -> Context -> Maybe Integer
 evalIdentifier id ctx = case id of
@@ -155,52 +174,10 @@ evalIdentifier id ctx = case id of
 		index <- evalIdentifier (Pidentifier indexName) ctx
 		evalIdentifier (ArrayNum name index) ctx
 
-evalValue :: Value -> Context -> Maybe Integer
-evalValue (Num n) _ = Just n
-evalValue (Identifier id) ctx = evalIdentifier id ctx
-
-eval :: Expression -> Context -> Maybe Integer
-eval (Value v) ctx = evalValue v ctx
-eval (Plus e1 e2) ctx = liftM2 (+) (evalValue e1 ctx) (evalValue e2 ctx)
-eval (Minus e1 e2) ctx = liftM2 (-) (evalValue e1 ctx) (evalValue e2 ctx)
-eval (Mul e1 e2) ctx = liftM2 (*) (evalValue e1 ctx) (evalValue e2 ctx)
-eval (Div e1 e2) ctx = liftM2 (div) (evalValue e1 ctx) (evalValue e2 ctx)
-eval (Mod e1 e2) ctx = liftM2 (mod) (evalValue e1 ctx) (evalValue e2 ctx)
-
-data IdentState = Undeclared | NotAScalar | NotAnArray | IndexUndeclared | IndexUninitialized | IndexOutOfBounds Size | IndexInitialized | IsVar VarState deriving (Eq)
-
-identState :: Identifier -> Context -> IdentState
-identState id ctx = case id of
-	Pidentifier name -> case Map.lookup name (scalars ctx) of
-		Nothing -> case Map.lookup name (arrays ctx) of
-			Nothing -> Undeclared
-			_ -> NotAScalar
-		Just vst -> IsVar vst
-	ArrayNum name index -> case Map.lookup name (arrays ctx) of
-		Nothing -> case Map.lookup name (scalars ctx) of
-			Nothing -> Undeclared
-			_ -> NotAnArray
-		Just (size, array) -> if not $ 0 <= index && index < size
-			then IndexOutOfBounds size
-			else case Map.lookup index array of
-				Nothing -> error "This shouldn't happen"
-				Just vst -> IsVar vst
-	ArrayPidentifier name indexName -> case Map.lookup indexName (scalars ctx) of
-		Nothing -> IndexUndeclared
-		Just vst -> case vst of
-			Uninitialized -> IndexUninitialized
-			Initialized -> IndexInitialized
-			HasValue index -> identState (ArrayNum name index) ctx
-			 
-handleIdentError :: Identifier -> String -> String -> Context -> (Identifier, Context)
-handleIdentError id str1 str3 ctx = case identState id ctx of
-	Undeclared -> error ("Undeclared variable: " ++ str1)
-	NotAScalar -> error (str1 ++ " is not a scalar!")
-	NotAnArray -> error (str1 ++ " is not an array!")
-	IndexUndeclared -> error ("Undeclared variable: " ++ str3)
-	IndexUninitialized -> error ("Index " ++ str3 ++ " of " ++ (str1 ++ "[" ++ str3 ++ "]") ++ " not initialized!")
-	IndexOutOfBounds size -> error ("Index " ++ str3 ++ " out of bounds 0-" ++ (show size) ++ ".")
-	_ -> (id, ctx)
+evalVarState :: VarState -> Maybe Integer
+evalVarState vst = case vst of
+	HasValue n -> Just n
+	_ -> Nothing
 
 }
 
@@ -266,10 +243,10 @@ Program		: var Declarations begin Commands end				{liftM2 Program (fmap reverse 
 
 Declarations :: {State Context [Declaration]}
 Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; if scalarDeclared $2 ctx
-											then error ("Variable named " ++ (show $2) ++ " already used!")
+											then error ("Variable named " ++ (show $2) ++ " already declared.")
 											else do put $ newScalar $2 ctx; return $ Scalar $2 : decls}
 		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; if arrayDeclared $2 ctx
-											then error ("Variable named " ++ (show $2) ++ " already used!")
+											then error ("Variable named " ++ (show $2) ++ " already declared.")
 											else do put $ newArray $2 $4 ctx; return $ Array $2 $4 : decls}
 		| {- empty -}							{return []}
 
@@ -278,19 +255,18 @@ Commands	: Commands Command						{liftM2 (:) $2 $1}
 		| Command							{fmap return $1}
 
 Command :: {State Context Command}
-Command		: Identifier ":=" Expression ';' 				{liftM2 Asgn $1 $3}
+Command		: Identifier ":=" Expression ';'				{liftM2 Asgn $1 $3}
 
 		| if Condition then Commands else Commands endif		{liftM3 If $2 (fmap reverse $4) (fmap reverse $6)}
 		| while Condition do Commands endwhile				{liftM2 While $2 (fmap reverse $4)}
 		| for pidentifier from Value to Value do Commands endfor	{liftM4 ForUp (return $2) $4 $6 (fmap reverse $8)}
 		| for pidentifier from Value downto Value do Commands endfor	{liftM4 ForDown (return $2) $4 $6 (fmap reverse $8)}
-		| read Identifier ';'						{liftM Read $2} {-{state $ \ctx -> case $2 of
-											Pidentifier name -> -}
-		| write Value ';'						{do v <- $2; ctx <- get; case v of
+		| read Identifier ';'						{liftM Read $2}
+		| write Value ';'						{liftM Write $2} {-{do v <- $2; ctx <- get; case v of
 											Num n -> do return $ Write v
 											Identifier ident -> case id evalValue v ctx of
 												Nothing -> error (show ident ++ " is uninitialized!")
-												_ -> do return $ Write v}
+												_ -> do return $ Write v}-}
 
 		| skip ';'							{return Skip}
 
@@ -318,9 +294,9 @@ Value		: num								{return $ Num $1}
 		| Identifier							{liftM Identifier $1}
 
 Identifier :: {State Context Identifier}
-Identifier	: pidentifier							{state $ \ctx -> handleIdentError (Pidentifier $1) $1 "" ctx}
-		| pidentifier '[' pidentifier ']'				{state $ \ctx -> handleIdentError (ArrayPidentifier $1 $3) $1 $3 ctx}
-		| pidentifier '[' num ']'					{state $ \ctx -> handleIdentError (ArrayNum $1 $3) $1 (show $3) ctx}
+Identifier	: pidentifier							{state $ \ctx -> verifyScalarOrIter $1 ctx}
+		| pidentifier '[' pidentifier ']'				{state $ \ctx -> verifyArrayPidentifier $1 $3 ctx}
+		| pidentifier '[' num ']'					{state $ \ctx -> verifyArrayNum $1 $3 ctx}
 {
 parseError :: [TokWrap] -> a
 parseError [] = error ("Unknown parse error.")

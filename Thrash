@@ -1,0 +1,83 @@
+
+
+scalarInitialized :: String -> Context -> Bool
+scalarInitialized name ctx = case Map.lookup name (scalars ctx) of
+	Nothing -> False
+	Just Uninitialized -> False
+	_ -> True
+
+initScalar :: String -> Context -> Context
+initScalar name ctx = case Map.lookup name (scalars ctx) of
+	Nothing -> error "Tried to initialize undeclared scalar!"
+	Just vst -> case vst of
+		Uninitialized -> ctx {scalars = Map.insert name Initialized (scalars ctx)}
+		_ -> ctx
+
+
+-- Checks whether a variable has been declared.
+--boundIn :: String -> Context -> Bool
+--name `boundIn` ctx = scalarDeclared name ctx || arrayDeclared name ctx
+
+-- Checks whether an identifier has been initialized.
+isInitialized :: VarState -> Bool
+isInitialized vst = case vst of
+	Uninitialized -> False
+	_ -> True
+
+isInitializedIn :: Identifier -> Context -> Bool
+isInitializedIn id ctx = case id of
+	Pidentifier name -> fmap isInitialized (Map.lookup name (scalars ctx)) == Just True
+	ArrayNum name index -> case Map.lookup name (arrays ctx) of
+		Nothing -> False
+		Just (size, array) -> 0 <= index && index < size && fmap isInitialized (Map.lookup index array) == Just True
+	ArrayPidentifier name indexName -> case Map.lookup indexName (scalars ctx) of
+		Nothing -> False
+		Just Uninitialized -> False
+		Just Initialized -> True {- Watch out! -}
+		Just (HasValue n) -> ArrayNum name n `isInitializedIn` ctx
+
+
+data IdentState = Undeclared | NotAScalar | NotAnArray | IndexUndeclared | IndexUninitialized | IndexOutOfBounds Size | IndexInitialized | IsVar VarState deriving (Eq)
+
+identState :: Identifier -> Context -> IdentState
+identState id ctx = case id of
+	Pidentifier name -> case Map.lookup name (scalars ctx) of
+		Nothing -> case Map.lookup name (arrays ctx) of
+			Nothing -> Undeclared
+			_ -> NotAScalar
+		Just vst -> IsVar vst
+	ArrayNum name index -> case Map.lookup name (arrays ctx) of
+		Nothing -> case Map.lookup name (scalars ctx) of
+			Nothing -> Undeclared
+			_ -> NotAnArray
+		Just (size, array) -> if not $ 0 <= index && index < size
+			then IndexOutOfBounds size
+			else case Map.lookup index array of
+				Nothing -> error "This shouldn't happen"
+				Just vst -> IsVar vst
+	ArrayPidentifier name indexName -> case Map.lookup indexName (scalars ctx) of
+		Nothing -> IndexUndeclared
+		Just vst -> case vst of
+			Uninitialized -> IndexUninitialized
+			Initialized -> IndexInitialized
+			HasValue index -> identState (ArrayNum name index) ctx
+			 
+handleIdentError :: Identifier -> String -> String -> Context -> (Identifier, Context)
+handleIdentError id str1 str3 ctx = case identState id ctx of
+	Undeclared -> error ("Undeclared variable: " ++ str1)
+	NotAScalar -> error (str1 ++ " is not a scalar!")
+	NotAnArray -> error (str1 ++ " is not an array!")
+	IndexUndeclared -> error ("Undeclared variable: " ++ str3)
+	IndexUninitialized -> error ("Index " ++ str3 ++ " of " ++ (str1 ++ "[" ++ str3 ++ "]") ++ " not initialized!")
+	IndexOutOfBounds size -> error ("Index " ++ str3 ++ " out of bounds 0-" ++ (show size) ++ ".")
+	_ -> (id, ctx)
+
+data ScalarState = SSUndeclared | SSNotAScalar | SSUninitialized | SSInitialized | SSIterator
+data ArrayState = ASUndeclared | ASNotAnArray | ASIndexUndeclared | ASIndexUninitialized | ASIndexOutOfBounds Size | ASInitialized
+
+
+Identifier :: {State Context Identifier}
+Identifier	: pidentifier							{state $ \ctx -> handleIdentError (Pidentifier $1) $1 "" ctx}
+		| pidentifier '[' pidentifier ']'				{state $ \ctx -> handleIdentError (ArrayPidentifier $1 $3) $1 $3 ctx}
+		| pidentifier '[' num ']'					{state $ \ctx -> handleIdentError (ArrayNum $1 $3) $1 (show $3) ctx}
+
