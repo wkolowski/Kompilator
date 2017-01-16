@@ -9,6 +9,9 @@ tokens :-
 	$white			;
 	\{[^\}]*\}		;
 
+	-- Ignore anything else.
+	'\380'			{\_ _ -> TDUPA}
+
 	-- Keywords.
 	VAR			{\_ _ -> TVAR}
 	BEGIN			{\_ _ -> TBEGIN}
@@ -58,7 +61,7 @@ tokens :-
 	[0-9]+			{\_ s -> TNum (read s :: Integer)}
 
 	-- Identifiers.
-	[_a-z]+			{\_ s -> TId s}
+	[_a-z]+			{\p s -> TId s p}
 
 	-- Used to be arrays
 	--[_a-z]+\[[0-9]+\]	{\s -> ArrayNum (filter (`elem` '-' : ['a'..'z']) s) ((read $ filter (`elem` ['0'..'9']) s) :: Integer)}
@@ -68,7 +71,7 @@ tokens :-
 
 data Token
 	-- Keywords.
-	= TVAR | TBEGIN | TEND | TIF | TTHEN | TELSE | TENDIF | TWHILE | TDO | TENDWHILE | TFOR | TFROM | TTO | TENDFOR | TDOWNTO | TREAD | TWRITE | TSKIP
+	= TDUPA | TVAR | TBEGIN | TEND | TIF | TTHEN | TELSE | TENDIF | TWHILE | TDO | TENDWHILE | TFOR | TFROM | TTO | TENDFOR | TDOWNTO | TREAD | TWRITE | TSKIP
 	-- Arithmetic operators.
 	| TPlus | TMinus | TMul | TDiv | TMod
 	-- Relational operators.
@@ -80,7 +83,7 @@ data Token
 	-- Numbers.
 	| TNum Integer
 	-- Identifiers.
-	| TId String
+	| TId String AlexPosn
 	deriving (Eq, Show)
 
 test = do

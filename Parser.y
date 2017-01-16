@@ -12,7 +12,7 @@ data Program
 	= Program [Declaration] [Command]
 	deriving (Show)
 
--- Declarations can be either scalars or arrays. 
+-- Declarations can be either scalars or arrays.
 data Declaration
 	= Scalar String
 	| Array String Integer
@@ -258,7 +258,7 @@ handleIdentError id str1 str3 ctx = case identState id ctx of
 	num			{TNum $$}
 
 	-- Identifiers.
-	pidentifier		{TId $$}
+	pidentifier		{TId $$ _}
 
 %%
 Program :: {State Context Program}
@@ -322,8 +322,8 @@ Identifier	: pidentifier							{state $ \ctx -> handleIdentError (Pidentifier $1
 		| pidentifier '[' pidentifier ']'				{state $ \ctx -> handleIdentError (ArrayPidentifier $1 $3) $1 $3 ctx}
 		| pidentifier '[' num ']'					{state $ \ctx -> handleIdentError (ArrayNum $1 $3) $1 (show $3) ctx}
 {
---parseError :: [Token] -> a
-parseError _ = error "Errur wihle parsink"
+parseError :: [Token] -> a
+parseError toks = error ("Parse error: " ++ show toks)
 
-main = getContents >>= print . (\tokens -> evalState (parse tokens) emptyContext) . alexScanTokens
+main = getContents >>= print . (\tokens -> evalState (parse tokens) emptyContext) . alexScanTokens . filter (\c -> 0 <= fromEnum c && fromEnum c < 128)
 }
