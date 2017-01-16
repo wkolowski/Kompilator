@@ -1,5 +1,5 @@
 {
-module Main (main, parse) where
+module Parser {-(parse, Context, emptyContext)-} where
 
 import Control.Monad.State			-- Needed to carry context along while parsing.
 import qualified Data.Map.Strict as Map		-- Needed to implement context.
@@ -27,7 +27,7 @@ data Command
 	| Read Identifier
 	| Write Value
 	| Skip
-	deriving (Show)
+	deriving (Eq, Show)
 
 data Expression
 	= Value Value
@@ -36,7 +36,7 @@ data Expression
 	| Mul Value Value
 	| Div Value Value
 	| Mod Value Value
-	deriving (Show)
+	deriving (Eq, Show)
 
 data Condition
 	= Eq Value Value
@@ -45,12 +45,12 @@ data Condition
 	| Gt Value Value
 	| Le Value Value
 	| Ge Value Value
-	deriving (Show)
+	deriving (Eq, Show)
 
 data Value
 	= Num Integer
 	| Identifier Identifier
-	deriving (Show, Eq)
+	deriving (Eq, Show)
 
 -- Identifiers are either just names of scalars (Pidentifier, e. g. name), names of arrays
 -- indexed by names of scalars (ArrayPidentifier, e. g. arr[i]) or names of arrays indexed
@@ -205,60 +205,60 @@ handleIdentError id str1 str3 ctx = case identState id ctx of
 }
 
 %name parse
-%tokentype {Token}
+%tokentype {TokWrap}
 %error {parseError}
 
 %token
 	-- Keywords.
-	var			{TVAR}
-	begin			{TBEGIN}
-	end			{TEND}
-	if			{TIF}
-	then			{TTHEN}
-	else			{TELSE}
-	endif			{TENDIF}
-	while			{TWHILE}
-	do			{TDO}
-	endwhile		{TENDWHILE}
-	for			{TFOR}
-	from			{TFROM}
-	to			{TTO}
-	endfor			{TENDFOR}
-	downto			{TDOWNTO}
-	read			{TREAD}
-	write			{TWRITE}
-	skip			{TSKIP}
+	var			{TW TVAR _}
+	begin			{TW TBEGIN _}
+	end			{TW TEND _}
+	if			{TW TIF _}
+	then			{TW TTHEN _}
+	else			{TW TELSE _}
+	endif			{TW TENDIF _}
+	while			{TW TWHILE _}
+	do			{TW TDO _}
+	endwhile		{TW TENDWHILE _}
+	for			{TW TFOR _}
+	from			{TW TFROM _}
+	to			{TW TTO _}
+	endfor			{TW TENDFOR _}
+	downto			{TW TDOWNTO _}
+	read			{TW TREAD _}
+	write			{TW TWRITE _}
+	skip			{TW TSKIP _}
 
 	-- Arithemtic operators.
-	'+'			{TPlus}
-	'-'			{TMinus}
-	'*'			{TMul}
-	'/'			{TDiv}
-	'%'			{TMod}
+	'+'			{TW TPlus _}
+	'-'			{TW TMinus _}
+	'*'			{TW TMul _}
+	'/'			{TW TDiv _}
+	'%'			{TW TMod _}
 
 	-- Relational operators.
-	'='			{TEq}
-	"<>"			{TNeq}
-	'<'			{TLt}
-	"<="			{TLe}
-	">="			{TGe}
-	'>'			{TGt}
+	'='			{TW TEq _}
+	"<>"			{TW TNeq _}
+	'<'			{TW TLt _}
+	"<="			{TW TLe _}
+	">="			{TW TGe _}
+	'>'			{TW TGt _}
 
 	-- Assingment and semicolon.
-	":="			{TAsgn}
-	';'			{TSemicolon}
+	":="			{TW TAsgn _}
+	';'			{TW TSemicolon _}
 
 	-- Parentheses and brackets.
-	'('			{TLParen}
-	')'			{TRParen}
-	'['			{TLBracket}
-	']'			{TRBracket}
+	'('			{TW TLParen _}
+	')'			{TW TRParen _}
+	'['			{TW TLBracket _}
+	']'			{TW TRBracket _}
 
 	-- Numbers.
-	num			{TNum $$}
+	num			{TW (TNum $$) _}
 
 	-- Identifiers.
-	pidentifier		{TId $$ _}
+	pidentifier		{TW (TId $$) _}
 
 %%
 Program :: {State Context Program}
@@ -322,8 +322,9 @@ Identifier	: pidentifier							{state $ \ctx -> handleIdentError (Pidentifier $1
 		| pidentifier '[' pidentifier ']'				{state $ \ctx -> handleIdentError (ArrayPidentifier $1 $3) $1 $3 ctx}
 		| pidentifier '[' num ']'					{state $ \ctx -> handleIdentError (ArrayNum $1 $3) $1 (show $3) ctx}
 {
-parseError :: [Token] -> a
-parseError toks = error ("Parse error: " ++ show toks)
+parseError :: [TokWrap] -> a
+parseError [] = error ("Unknown parse error.")
+parseError ((TW tok (AlexPn _ line col)):_) = error ("Parse error in line " ++ (show line) ++ ", column " ++ (show col))
 
-main = getContents >>= print . (\tokens -> evalState (parse tokens) emptyContext) . alexScanTokens . filter (\c -> 0 <= fromEnum c && fromEnum c < 128)
+--main = getContents >>= print . (\tokens -> evalState (parse tokens) emptyContext) . alexScanTokens . filter (\c -> 0 <= fromEnum c && fromEnum c < 128)
 }

@@ -1,0 +1,10 @@
+VAR
+  a
+BEGIN
+  FOR i FROM 15 TO 2 DO
+    READ a;
+  ENDFOR
+  WHILE a < 0 DO 
+    SKIP;
+  ENDWHILE
+END

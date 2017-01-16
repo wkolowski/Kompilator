@@ -1,0 +1,16 @@
+VAR
+  a b c d e f g h i j k l
+BEGIN
+  a := 42;
+  b := a + 0;
+  c := 0 + a;
+  d := a * 1;
+  e := 1 * a;
+  f := a * 0;
+  g := 0 * a;
+  h := a - 0;
+  i := a / 1;
+  j := a / a;
+  k := a % 1;
+  l := a % a;
+END

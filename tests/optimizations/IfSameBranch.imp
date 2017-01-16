@@ -1,0 +1,6 @@
+VAR
+  a
+BEGIN
+  a := 42;
+  IF a > 35 THEN a := 2 + 2; ELSE a := 4 + 0; ENDIF
+END
