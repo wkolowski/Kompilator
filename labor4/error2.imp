@@ -1,7 +1,0 @@
-{ Błąd w linii 5: niezadeklarowana zmienna a }
-VAR
-  b
-BEGIN
-  READ a;
-  b := a;
-END

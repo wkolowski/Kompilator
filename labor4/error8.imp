@@ -1,7 +1,0 @@
-{ Błąd w linii 6: niewłaściwe użycie zmiennej a }
-VAR
-  a b[10]
-BEGIN
-  a := 1;
-  a[1] := b[a];
-END
