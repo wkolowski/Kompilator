@@ -63,13 +63,8 @@ data Identifier
 
 instance Show Identifier where
 	show (Pidentifier name) = name
-	show (ArrayPidentifier name index) = name ++ "[" ++ index ++ "]"
+	show (ArrayPidentifier name indexName) = name ++ "[" ++ indexName ++ "]"
 	show (ArrayNum name index) = name ++ "[" ++ (show index) ++ "]"
-
-nameOfIdent :: Identifier -> String
-nameOfIdent (Pidentifier name) = name
-nameOfIdent (ArrayPidentifier name _) = name
-nameOfIdent (ArrayNum name _) = name
 
 -- Variable state can be either undeclared, uninitialized, initialized (but
 -- without known value) or initialized with a known value.
@@ -116,38 +111,38 @@ getScalarOrIter name ctx = case Map.lookup name (iterators ctx) of
 	Nothing -> Map.lookup name (scalars ctx)
 	Just vst -> Just vst
 
-verifyScalarOrIter :: String -> Context -> (Identifier, Context)
-verifyScalarOrIter name ctx
-	| arrayDeclared name ctx = error $ show name ++ " is not a scalar."
-	| not (scalarDeclared name ctx) && not (iteratorDeclared name ctx) = error $ "Undeclared variable " ++ (show name) ++ "."
+verifyScalarOrIter :: (Name, AlexPosn) -> Context -> (Identifier, Context)
+verifyScalarOrIter (name, pos) ctx
+	| arrayDeclared name ctx = err pos $ show name ++ " is not a scalar."
+	| not (scalarDeclared name ctx) && not (iteratorDeclared name ctx) = err pos $ "Undeclared variable " ++ (show name) ++ "."
 	| otherwise = (Pidentifier name, ctx)
 
-verifyArrayNum :: String -> Integer -> Context -> (Identifier, Context)
-verifyArrayNum name index ctx
-	| scalarDeclared name ctx || iteratorDeclared name ctx = error $ show name ++ " is not an array."
-	| not (arrayDeclared name ctx) = error $ "Undeclared variable " ++ (show name) ++ "."
+verifyArrayNum :: (Name, AlexPosn) -> Integer -> Context -> (Identifier, Context)
+verifyArrayNum (name, pos) index ctx
+	| scalarDeclared name ctx || iteratorDeclared name ctx = err pos $ show name ++ " is not an array."
+	| not (arrayDeclared name ctx) = err pos $ "Undeclared variable " ++ (show name) ++ "."
 	| otherwise = case Map.lookup name (arrays ctx) of
-		Nothing -> error $ "Undeclared variable " ++ (show name) ++ "."
+		Nothing -> err pos $ "Undeclared variable " ++ (show name) ++ "."
 		Just (size, array) -> if 0 <= index && index < size
 			then (ArrayNum name index, ctx)
-			else error $ "Index " ++ (show index) ++ " out of bounds 0-" ++ (show $ size - 1) ++ "."
+			else err pos$ "Index " ++ (show index) ++ " out of bounds 0-" ++ (show $ size - 1) ++ "."
 
-verifyArrayPidentifier :: String -> String -> Context -> (Identifier, Context)
-verifyArrayPidentifier name indexName ctx = case Map.lookup name (arrays ctx) of
+verifyArrayPidentifier :: (Name, AlexPosn) -> (Name, AlexPosn) -> Context -> (Identifier, Context)
+verifyArrayPidentifier (name, pos) (indexName, indexPos) ctx = case Map.lookup name (arrays ctx) of
 	Nothing -> if scalarDeclared name ctx || iteratorDeclared name ctx
-		then error $ show name ++ " is not an array."
-		else error $ "Undeclared variable " ++ (show name) ++ "."
+		then err pos $ show name ++ " is not an array."
+		else err pos $ "Undeclared variable " ++ (show name) ++ "."
 
 	Just (size, array) -> case getScalarOrIter indexName ctx of
 		Nothing -> if arrayDeclared indexName ctx
-			then error $ "The index " ++ (show indexName) ++ " is not a scalar."
-			else error $ "Undeclared variable " ++ (show indexName) ++ "."
+			then err indexPos $ "The index " ++ (show indexName) ++ " is not a scalar."
+			else err indexPos $ "Undeclared variable " ++ (show indexName) ++ "."
 
-		Just Uninitialized -> error $ "Cannot reference array " ++ (show name) ++ " with uninitialized index " ++ (show indexName) ++ "."
+		Just Uninitialized -> err indexPos $ "Cannot reference array " ++ (show name) ++ " with uninitialized index " ++ (show indexName) ++ "."
 		Just Initialized -> (ArrayPidentifier name indexName, ctx)
 		Just (HasValue index) -> if 0 <= index && index < size
 			then (ArrayPidentifier name indexName, ctx)
-			else error $ "Index " ++ (show indexName) ++ " out of bounds 0-" ++ (show $ size - 1) ++ "."
+			else err indexPos $ "Index " ++ (show indexName) ++ " out of bounds 0-" ++ (show $ size - 1) ++ "."
 
 eval :: Expression -> Context -> Maybe Integer
 eval (Value v) ctx = evalValue v ctx
@@ -179,6 +174,9 @@ evalVarState vst = case vst of
 	HasValue n -> Just n
 	_ -> Nothing
 
+err :: AlexPosn -> String -> a
+err (AlexPn _ line col) msg = error $ "Error in line " ++ (show line) ++ ", column " ++ (show col) ++ ": " ++ msg
+
 }
 
 %name parse
@@ -187,49 +185,49 @@ evalVarState vst = case vst of
 
 %token
 	-- Keywords.
-	var			{TW TVAR _}
-	begin			{TW TBEGIN _}
-	end			{TW TEND _}
-	if			{TW TIF _}
-	then			{TW TTHEN _}
-	else			{TW TELSE _}
-	endif			{TW TENDIF _}
-	while			{TW TWHILE _}
-	do			{TW TDO _}
-	endwhile		{TW TENDWHILE _}
-	for			{TW TFOR _}
-	from			{TW TFROM _}
-	to			{TW TTO _}
-	endfor			{TW TENDFOR _}
-	downto			{TW TDOWNTO _}
-	read			{TW TREAD _}
-	write			{TW TWRITE _}
-	skip			{TW TSKIP _}
+	var			{TW TVAR $$}
+	begin			{TW TBEGIN $$}
+	end			{TW TEND $$}
+	if			{TW TIF $$}
+	then			{TW TTHEN $$}
+	else			{TW TELSE $$}
+	endif			{TW TENDIF $$}
+	while			{TW TWHILE $$}
+	do			{TW TDO $$}
+	endwhile		{TW TENDWHILE $$}
+	for			{TW TFOR $$}
+	from			{TW TFROM $$}
+	to			{TW TTO $$}
+	endfor			{TW TENDFOR $$}
+	downto			{TW TDOWNTO $$}
+	read			{TW TREAD $$}
+	write			{TW TWRITE $$}
+	skip			{TW TSKIP $$}
 
 	-- Arithemtic operators.
-	'+'			{TW TPlus _}
-	'-'			{TW TMinus _}
-	'*'			{TW TMul _}
-	'/'			{TW TDiv _}
-	'%'			{TW TMod _}
+	'+'			{TW TPlus $$}
+	'-'			{TW TMinus $$}
+	'*'			{TW TMul $$}
+	'/'			{TW TDiv $$}
+	'%'			{TW TMod $$}
 
 	-- Relational operators.
-	'='			{TW TEq _}
-	"<>"			{TW TNeq _}
-	'<'			{TW TLt _}
-	"<="			{TW TLe _}
-	">="			{TW TGe _}
-	'>'			{TW TGt _}
+	'='			{TW TEq $$}
+	"<>"			{TW TNeq $$}
+	'<'			{TW TLt $$}
+	"<="			{TW TLe $$}
+	">="			{TW TGe $$}
+	'>'			{TW TGt $$}
 
 	-- Assingment and semicolon.
-	":="			{TW TAsgn _}
-	';'			{TW TSemicolon _}
+	":="			{TW TAsgn $$}
+	';'			{TW TSemicolon $$}
 
 	-- Parentheses and brackets.
-	'('			{TW TLParen _}
-	')'			{TW TRParen _}
-	'['			{TW TLBracket _}
-	']'			{TW TRBracket _}
+	'('			{TW TLParen $$}
+	')'			{TW TRParen $$}
+	'['			{TW TLBracket $$}
+	']'			{TW TRBracket $$}
 
 	-- Numbers.
 	num			{TW (TNum $$) _}
@@ -242,12 +240,14 @@ Program :: {State Context Program}
 Program		: var Declarations begin Commands end				{liftM2 Program (fmap reverse $2) (fmap reverse $4)}
 
 Declarations :: {State Context [Declaration]}
-Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; if scalarDeclared $2 ctx
-											then error ("Variable named " ++ (show $2) ++ " already declared.")
-											else do put $ newScalar $2 ctx; return $ Scalar $2 : decls}
-		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; if arrayDeclared $2 ctx
-											then error ("Variable named " ++ (show $2) ++ " already declared.")
-											else do put $ newArray $2 $4 ctx; return $ Array $2 $4 : decls}
+Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; let (id, pos) = $2 in
+											if scalarDeclared id ctx
+											then err pos $ "Variable named " ++ (show id) ++ " already declared."
+											else do put $ newScalar id ctx; return $ Scalar id : decls}
+		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; let (id, pos) = $2 in
+											if arrayDeclared id ctx
+											then err pos $ "Variable named " ++ (show id) ++ " already declared."
+											else do put $ newArray id $4 ctx; return $ Array id $4 : decls}
 		| {- empty -}							{return []}
 
 Commands :: {State Context [Command]}
@@ -259,8 +259,8 @@ Command		: Identifier ":=" Expression ';'				{liftM2 Asgn $1 $3}
 
 		| if Condition then Commands else Commands endif		{liftM3 If $2 (fmap reverse $4) (fmap reverse $6)}
 		| while Condition do Commands endwhile				{liftM2 While $2 (fmap reverse $4)}
-		| for pidentifier from Value to Value do Commands endfor	{liftM4 ForUp (return $2) $4 $6 (fmap reverse $8)}
-		| for pidentifier from Value downto Value do Commands endfor	{liftM4 ForDown (return $2) $4 $6 (fmap reverse $8)}
+		| for pidentifier from Value to Value do Commands endfor	{let (id, _) = $2 in liftM4 ForUp (return id) $4 $6 (fmap reverse $8)}
+		| for pidentifier from Value downto Value do Commands endfor	{let (id, _) = $2 in liftM4 ForDown (return id) $4 $6 (fmap reverse $8)}
 		| read Identifier ';'						{liftM Read $2}
 		| write Value ';'						{liftM Write $2} {-{do v <- $2; ctx <- get; case v of
 											Num n -> do return $ Write v
@@ -301,6 +301,4 @@ Identifier	: pidentifier							{state $ \ctx -> verifyScalarOrIter $1 ctx}
 parseError :: [TokWrap] -> a
 parseError [] = error ("Unknown parse error.")
 parseError ((TW tok (AlexPn _ line col)):_) = error ("Parse error in line " ++ (show line) ++ ", column " ++ (show col))
-
---main = getContents >>= print . (\tokens -> evalState (parse tokens) emptyContext) . alexScanTokens . filter (\c -> 0 <= fromEnum c && fromEnum c < 128)
 }

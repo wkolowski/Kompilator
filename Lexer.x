@@ -58,7 +58,7 @@ tokens :-
 	[0-9]+			{\p s -> TW (TNum (read s :: Integer)) p}
 
 	-- Identifiers.
-	[_a-z]+			{\p s -> TW (TId s) p}
+	[_a-z]+			{\p s -> TW (TId (s, p)) p}
 
 {
 
@@ -76,7 +76,7 @@ data Token
 	-- Numbers.
 	| TNum Integer
 	-- Identifiers.
-	| TId String
+	| TId (String, AlexPosn)
 	deriving (Eq, Show)
 
 data TokWrap = TW Token AlexPosn deriving (Show)
