@@ -1,4 +1,4 @@
-module Main where
+module Optimizer where
 
 import Control.Monad.State
 
@@ -22,7 +22,7 @@ foldConstsExpr e = case e of
 	Plus (Num n) (Num n') -> Value $ Num (n + n')
 	Plus (Num 0) v -> Value v
 	Plus v (Num 0) -> Value v
-	Minus (Num n) (Num n') -> Value $ Num (n - n')
+	Minus (Num n) (Num n') -> Value $ Num (max (n - n') 0)
 	Minus v (Num 0) -> Value v
 	Mul (Num n) (Num n') -> Value $ Num (n * n')
 	Mul (Num 1) v -> Value v
@@ -90,12 +90,3 @@ simplAsgnCmd cmd = case cmd of
 
 optimize :: Program -> Program
 optimize = simplAsgn . simplConds . foldConsts
-
-main = do
-	text <- getContents
-	let code = filter (\c -> 0 <= fromEnum c && fromEnum c < 128) text
-	let tokens = alexScanTokens code
-	let program = evalState (parse tokens) emptyContext
-	let optimized = optimize program
-	print program
-	print optimized
