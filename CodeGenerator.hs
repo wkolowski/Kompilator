@@ -4,6 +4,7 @@ import Control.Monad.State
 
 import Lexer
 import Parser
+import StaticAnalyzer
 import Optimizer
 
 data Instr
@@ -44,12 +45,25 @@ flowTree cmds = flowTree' cmds (Node [] Empty Empty)
 	
 
 main = do
+	-- Read and sanitize the input.
 	text <- getContents
 	let code = filter (\c -> 0 <= fromEnum c && fromEnum c < 128) text
+	-- Lexer.
 	let tokens = alexScanTokens code
+	-- Parser.
 	let program = evalState (parse tokens) emptyContext
-	let optimized = optimize program
-	print program
-	print optimized
-	let (Program _ cmds) = program
-	print $ flowTree cmds
+	putStr "Program: "
+	print $ program
+	-- Static analysis.
+	let analyzed = evalState (analyze program) emptyContext
+	putStr "Analyzed: "
+	print analyzed
+	-- Optimizer.
+	--let optimized = optimize analyzed
+	-- Results
+	
+	--print optimized
+	--let (Program decls cmds) = program
+	--print $ evalState (analyzeDeclarations decls) emptyContext
+	--print $ evalState (analyzeCommands cmds) emptyContext
+	--print $ flowTree cmds

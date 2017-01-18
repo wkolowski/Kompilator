@@ -70,14 +70,16 @@ instance Show Identifier where
 -- without known value) or initialized with a known value.
 -- Undeclared is represented by Nothing when looking the variable up in the
 -- context.
-data VarState = Uninitialized | Initialized | HasValue Integer deriving (Eq)
+data VarState = Uninitialized | Initialized | HasValue Integer deriving (Eq, Show)
 
 type Name = String
 type Size = Integer
+type Index = Integer
 
 -- Context keeps track of declared variables. It also knows whether
 -- the variable has been initialized.
 data Context = Context {scalars :: Map.Map Name VarState, arrays :: Map.Map Name (Size, Map.Map Integer VarState), iterators :: Map.Map Name VarState}
+	deriving (Eq, Show)
 
 emptyContext = Context {scalars = Map.empty, arrays = Map.empty, iterators = Map.empty}
 
@@ -106,8 +108,8 @@ iteratorDeclared name ctx = isJust $ Map.lookup name (iterators ctx)
 isDeclared :: String -> Context -> Bool
 isDeclared name ctx = scalarDeclared name ctx || arrayDeclared name ctx || iteratorDeclared name ctx
 
-getScalarOrIter :: String -> Context -> Maybe VarState
-getScalarOrIter name ctx = case Map.lookup name (iterators ctx) of
+getScalarOrIterMay :: String -> Context -> Maybe VarState
+getScalarOrIterMay name ctx = case Map.lookup name (iterators ctx) of
 	Nothing -> Map.lookup name (scalars ctx)
 	Just vst -> Just vst
 
@@ -133,7 +135,7 @@ verifyArrayPidentifier (name, pos) (indexName, indexPos) ctx = case Map.lookup n
 		then err pos $ show name ++ " is not an array."
 		else err pos $ "Undeclared variable " ++ (show name) ++ "."
 
-	Just (size, array) -> case getScalarOrIter indexName ctx of
+	Just (size, array) -> case getScalarOrIterMay indexName ctx of
 		Nothing -> if arrayDeclared indexName ctx
 			then err indexPos $ "The index " ++ (show indexName) ++ " is not a scalar."
 			else err indexPos $ "Undeclared variable " ++ (show indexName) ++ "."
@@ -240,10 +242,10 @@ Program :: {State Context Program}
 Program		: var Declarations begin Commands end				{liftM2 Program (fmap reverse $2) (fmap reverse $4)}
 
 Declarations :: {State Context [Declaration]}
-Declarations	: Declarations pidentifier					{do decls <- $1; ctx <- get; let (id, pos) = $2 in
+Declarations	: Declarations pidentifier					{do decls <- $1; return $ Scalar (fst $2) : decls}{--{do decls <- $1; ctx <- get; let (id, pos) = $2 in
 											if scalarDeclared id ctx
 											then err pos $ "Variable named " ++ (show id) ++ " already declared."
-											else do put $ newScalar id ctx; return $ Scalar id : decls}
+											else do put $ newScalar id ctx; return $ Scalar id : decls}--}
 		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; let (id, pos) = $2 in
 											if arrayDeclared id ctx
 											then err pos $ "Variable named " ++ (show id) ++ " already declared."
@@ -294,9 +296,9 @@ Value		: num								{return $ Num $1}
 		| Identifier							{liftM Identifier $1}
 
 Identifier :: {State Context Identifier}
-Identifier	: pidentifier							{state $ \ctx -> verifyScalarOrIter $1 ctx}
-		| pidentifier '[' pidentifier ']'				{state $ \ctx -> verifyArrayPidentifier $1 $3 ctx}
-		| pidentifier '[' num ']'					{state $ \ctx -> verifyArrayNum $1 $3 ctx}
+Identifier	: pidentifier							{return $ Pidentifier (fst $1)} {-{state $ \ctx -> verifyScalarOrIter $1 ctx}-}
+		| pidentifier '[' pidentifier ']'				{return $ ArrayPidentifier (fst $1) (fst $3)} {-state $ \ctx -> verifyArrayPidentifier $1 $3 ctx}-}
+		| pidentifier '[' num ']'					{return $ ArrayNum (fst $1) $3} {-state $ \ctx -> verifyArrayNum $1 $3 ctx}-}
 {
 parseError :: [TokWrap] -> a
 parseError [] = error ("Unknown parse error.")
