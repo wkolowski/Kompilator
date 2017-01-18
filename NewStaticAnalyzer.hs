@@ -11,6 +11,9 @@ import Parser
 
 type Error = String
 
+err :: AlexPosn -> String -> Either Error a
+err (AlexPn _ line col) msg = Left $ "Error in line " ++ (show line) ++ ", column " ++ (show col) ++ ": " ++ msg
+
 analyze :: Program -> StateT Context (Either Error) Program
 analyze (Program decls cmds) = liftM2 Program (analyzeDeclarations decls) (analyzeCommands cmds)
 
@@ -24,19 +27,19 @@ analyzeDeclarations decls = case decls of
 
 declareVar :: Declaration -> StateT Context (Either Error) Context
 declareVar decl = case decl of
-	Scalar name -> declareScalar name
-	Array name size -> declareArray name size
+	Scalar name pos -> declareScalar name pos
+	Array name size pos -> declareArray name size pos
 
-declareScalar :: Name -> StateT Context (Either Error) Context
-declareScalar name = StateT $ \ctx -> 
-	if arrayDeclared name ctx then Left $ "Variable " ++ name ++ " already declared as an array."
-	else if scalarDeclared name ctx then Left $ "Variable " ++ name ++ " already declared."
+declareScalar :: Name -> AlexPosn -> StateT Context (Either Error) Context
+declareScalar name pos = StateT $ \ctx ->
+	if arrayDeclared name ctx then err pos $ "Variable " ++ name ++ " already declared as an array."
+	else if scalarDeclared name ctx then err pos $ "Variable " ++ name ++ " already declared."
 	else Right $ (newScalar name ctx, ctx)
 
-declareArray :: Name -> Size -> StateT Context (Either Error) Context
-declareArray name size = StateT $ \ctx ->
-	if scalarDeclared name ctx then Left $ "Variable " ++ name ++ " already declared as a scalar."
-	else if arrayDeclared name ctx then Left $ "Variable " ++ name ++ " already declared."
+declareArray :: Name -> Size -> AlexPosn -> StateT Context (Either Error) Context
+declareArray name size pos = StateT $ \ctx ->
+	if scalarDeclared name ctx then err pos $ "Variable " ++ name ++ " already declared as a scalar."
+	else if arrayDeclared name ctx then err pos $ "Variable " ++ name ++ " already declared."
 	else Right $ (newArray name size ctx, ctx)
 
 analyzeCommands :: [Command] -> StateT Context (Either Error) [Command]
@@ -58,40 +61,40 @@ analyzeCommands cmds = case cmds of
 
 readIdentifier :: Identifier -> StateT Context (Either Error) Context
 readIdentifier id = case id of
-	Pidentifier name -> readPidentifier name
-	ArrayNum name index -> readArrayNum name index
-	ArrayPidentifier name indexName -> readArrayPidentifier name indexName
+	Pidentifier name pos -> readPidentifier name pos
+	ArrayNum name index pos -> readArrayNum name index pos
+	ArrayPidentifier name indexName posName posIndex -> readArrayPidentifier name indexName posName posIndex
 
-readPidentifier :: Name -> StateT Context (Either Error) Context
-readPidentifier name = StateT $ \ctx ->
-	if arrayDeclared name ctx then Left $ "Trying to use variable " ++ name ++ " as a scalar, but it was declared an array."
-	else if not $ scalarDeclared name ctx then Left $ "Undeclared variable " ++ name ++ "."
+readPidentifier :: Name -> AlexPosn -> StateT Context (Either Error) Context
+readPidentifier name pos = StateT $ \ctx ->
+	if arrayDeclared name ctx then err pos $ "Trying to use variable " ++ name ++ " as a scalar, but it was declared an array."
+	else if not $ scalarDeclared name ctx then err pos $ "Undeclared variable " ++ name ++ "."
 	else Right (ctx {scalars = Map.insert name Initialized (scalars ctx)}, ctx)
 
-readArrayNum :: Name -> Index -> StateT Context (Either Error) Context
-readArrayNum name index = StateT $ \ctx ->
-	if scalarDeclared name ctx then Left $ "Trying to use variable " ++ name ++ " as an array, but it was declared a scalar."
+readArrayNum :: Name -> Index -> AlexPosn -> StateT Context (Either Error) Context
+readArrayNum name index pos = StateT $ \ctx ->
+	if scalarDeclared name ctx then err pos $ "Trying to use variable " ++ name ++ " as an array, but it was declared a scalar."
 	else case Map.lookup name (arrays ctx) of
-		Nothing -> Left $ "Undeclared variable " ++ name ++ "."
+		Nothing -> err pos $ "Undeclared variable " ++ name ++ "."
 		Just (size, array) ->
 			if not $ 0 <= index && index < size
-			then Left $ "Index " ++ (show index) ++ " out of bounds 0-" ++ show (size - 1) ++ " in expression " ++ name ++ "[" ++ (show index) ++ "]."
+			then err pos $ "Index " ++ (show index) ++ " out of bounds 0-" ++ show (size - 1) ++ " in expression " ++ name ++ "[" ++ (show index) ++ "]."
 			else Right (ctx {arrays = Map.insert name (size, Map.insert index Initialized array) (arrays ctx)}, ctx)
 
-readArrayPidentifier :: Name -> Name -> StateT Context (Either Error) Context
-readArrayPidentifier name indexName = do
+readArrayPidentifier :: Name -> Name -> AlexPosn -> AlexPosn -> StateT Context (Either Error) Context
+readArrayPidentifier name indexName posName posIndex = do
 	ctx <- get
-	if scalarDeclared name ctx then StateT $ \_ -> Left $ "Trying to use variable " ++ name ++ " as an array, but it was declared a scalar."
+	if scalarDeclared name ctx then StateT $ \_ -> err posName $ "Trying to use variable " ++ name ++ " as an array, but it was declared a scalar."
 	else case Map.lookup name (arrays ctx) of
-		Nothing -> StateT $ \_ -> Left $ "Undeclared variable " ++ name ++ "."
+		Nothing -> StateT $ \_ -> err posName $ "Undeclared variable " ++ name ++ "."
 		Just (size, array) ->
 			if arrayDeclared indexName ctx
-			then StateT $ \_ -> Left $ "Trying to use variable " ++ indexName ++ " as a scalar, but it was declared an array."
+			then StateT $ \_ -> err posIndex $ "Trying to use variable " ++ indexName ++ " as a scalar, but it was declared an array."
 			else do
-				vst <- getScalarOrIter indexName
+				vst <- getScalarOrIter indexName posIndex
 				case vst of
-					Uninitialized -> StateT $ \_ -> Left $ "Tried to use uninitialized variable " ++ indexName ++ " as an index in " ++ name ++ "[" ++ indexName ++ "]."
-					HasValue index -> readArrayNum name index
+					Uninitialized -> StateT $ \_ -> err posIndex $ "Tried to use uninitialized variable " ++ indexName ++ " as an index in " ++ name ++ "[" ++ indexName ++ "]."
+					HasValue index -> readArrayNum name index posName
 					Initialized -> return $ ctx {arrays = Map.insert name (size, Map.fromList (zip [0..size - 1] (repeat Initialized))) (arrays ctx)}
 
 {-
@@ -121,51 +124,51 @@ isDeclared' name ctx =
 -}
 data VarType = VTScalar | VTArray | VTIter
 
-getVarType :: Name -> StateT Context (Either Error) VarType
-getVarType name = StateT $ \ctx ->
+getVarType :: Name -> AlexPosn -> StateT Context (Either Error) VarType
+getVarType name pos = StateT $ \ctx ->
 	if isJust $ Map.lookup name (scalars ctx) then Right (VTScalar, ctx)
 	else if isJust $ Map.lookup name (arrays ctx) then Right (VTArray, ctx)
 	else if isJust $ Map.lookup name (iterators ctx) then Right (VTIter, ctx)
-	else Left $ "Undeclared variable " ++ name ++ "."
+	else err pos $ "Undeclared variable " ++ name ++ "."
 
-getScalarOrIter :: Name -> StateT Context (Either Error) VarState
-getScalarOrIter name = do
-	vtype <- getVarType name
+getScalarOrIter :: Name -> AlexPosn -> StateT Context (Either Error) VarState
+getScalarOrIter name pos = do
+	vtype <- getVarType name pos
 	ctx <- get
 	StateT $ \_ -> case vtype of
-		VTArray -> Left $ "Tried to use variable " ++ name ++ " as a scalar, but it was declared an array."
+		VTArray -> err pos $ "Tried to use variable " ++ name ++ " as a scalar, but it was declared an array."
 		VTScalar -> case Map.lookup name (scalars ctx) of
-			Nothing -> Left $ "Unknown error in getScalarOrIter, VTScalar"
+			Nothing -> err pos $ "Unknown error in getScalarOrIter, VTScalar"
 			Just vst -> Right (vst, ctx)
 		VTIter -> case Map.lookup name (iterators ctx) of
-			Nothing -> Left $ "Unknown error in getScalarOrIter, VTIter"
+			Nothing -> err pos $ "Unknown error in getScalarOrIter, VTIter"
 			Just vst -> Right (vst, ctx)
 
-scalarOrIterInitialized :: Name -> StateT Context (Either Error) Bool
-scalarOrIterInitialized name = do
-	vst <- getScalarOrIter name
+scalarOrIterInitialized :: Name -> AlexPosn -> StateT Context (Either Error) Bool
+scalarOrIterInitialized name pos = do
+	vst <- getScalarOrIter name pos
 	StateT $ \ctx -> case vst of
-		Uninitialized -> Left $ "Tried to use uninitialized variable " ++ name ++ "."
+		Uninitialized -> err pos $ "Tried to use uninitialized variable " ++ name ++ "."
 		_ -> Right (True, ctx)
 
-getArrayElement :: Name -> Index -> StateT Context (Either Error) VarState
-getArrayElement name index = do
-	vtype <- getVarType name
+getArrayElement :: Name -> Index -> AlexPosn -> StateT Context (Either Error) VarState
+getArrayElement name index pos = do
+	vtype <- getVarType name pos
 	StateT $ \ctx -> case vtype of
-		VTScalar -> Left $ "Tried to use variable " ++ name ++ " as an array, but it was declared a scalar."
-		VTIter -> Left $ "Tried to use variable " ++ name ++ " as an array, but it was declared a scalar."
+		VTScalar -> err pos $ "Tried to use variable " ++ name ++ " as an array, but it was declared a scalar."
+		VTIter -> err pos $ "Tried to use variable " ++ name ++ " as an array, but it was declared a scalar."
 		VTArray -> case Map.lookup name (arrays ctx) of
-			Nothing -> Left $ "Unknown error in getArrayElement, VTArray"
+			Nothing -> err pos $ "Unknown error in getArrayElement, VTArray"
 			Just (size, array) ->
 				if not $ 0 <= index && index < size
-				then Left $ "Index " ++ (show index) ++ " out of bounds 0-" ++ show (size - 1) ++ " in expression " ++ name ++ "[" ++ (show index) ++ "]."
+				then err pos $ "Index " ++ (show index) ++ " out of bounds 0-" ++ show (size - 1) ++ " in expression " ++ name ++ "[" ++ (show index) ++ "]."
 				else case Map.lookup index array of
-					Nothing -> Left $ "Unknown error in getArrayElement, looking for index value"
+					Nothing -> err pos $ "Unknown error in getArrayElement, looking for index value"
 					Just vst -> Right (vst, ctx)
 
-arrayElementInitialized :: Name -> Index -> StateT Context (Either Error) Bool
-arrayElementInitialized name index = do
-	vst <- getArrayElement name index
+arrayElementInitialized :: Name -> Index -> AlexPosn -> StateT Context (Either Error) Bool
+arrayElementInitialized name index pos = do
+	vst <- getArrayElement name index pos
 	StateT $ \ctx -> case vst of
-		Uninitialized -> Left $ "Tried to use uninitialized variable " ++ name ++ "[" ++ (show index) ++ "]."
+		Uninitialized -> err pos $ "Tried to use uninitialized variable " ++ name ++ "[" ++ (show index) ++ "]."
 		_ -> Right (True, ctx)

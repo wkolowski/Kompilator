@@ -14,8 +14,8 @@ data Program
 
 -- Declarations can be either scalars or arrays.
 data Declaration
-	= Scalar String
-	| Array String Integer
+	= Scalar String AlexPosn
+	| Array String Integer AlexPosn
 	deriving (Show)
 
 data Command
@@ -56,15 +56,15 @@ data Value
 -- indexed by names of scalars (ArrayPidentifier, e. g. arr[i]) or names of arrays indexed
 -- by numerical constacts (ArrayNum, e. g. arr[5]).
 data Identifier
-	= Pidentifier String
-	| ArrayPidentifier String String
-	| ArrayNum String Integer
+	= Pidentifier String AlexPosn
+	| ArrayPidentifier String String AlexPosn AlexPosn
+	| ArrayNum String Integer AlexPosn
 	deriving (Eq)
 
 instance Show Identifier where
-	show (Pidentifier name) = name
-	show (ArrayPidentifier name indexName) = name ++ "[" ++ indexName ++ "]"
-	show (ArrayNum name index) = name ++ "[" ++ (show index) ++ "]"
+	show (Pidentifier name _) = name
+	show (ArrayPidentifier name indexName _ _) = name ++ "[" ++ indexName ++ "]"
+	show (ArrayNum name index _) = name ++ "[" ++ (show index) ++ "]"
 
 -- Variable state can be either undeclared, uninitialized, initialized (but
 -- without known value) or initialized with a known value.
@@ -113,7 +113,7 @@ getScalarOrIterMay name ctx = case Map.lookup name (iterators ctx) of
 	Nothing -> Map.lookup name (scalars ctx)
 	Just vst -> Just vst
 
-verifyScalarOrIter :: (Name, AlexPosn) -> Context -> (Identifier, Context)
+{-verifyScalarOrIter :: (Name, AlexPosn) -> Context -> (Identifier, Context)
 verifyScalarOrIter (name, pos) ctx
 	| arrayDeclared name ctx = err pos $ show name ++ " is not a scalar."
 	| not (scalarDeclared name ctx) && not (iteratorDeclared name ctx) = err pos $ "Undeclared variable " ++ (show name) ++ "."
@@ -175,9 +175,9 @@ evalVarState :: VarState -> Maybe Integer
 evalVarState vst = case vst of
 	HasValue n -> Just n
 	_ -> Nothing
-
-err :: AlexPosn -> String -> a
-err (AlexPn _ line col) msg = error $ "Error in line " ++ (show line) ++ ", column " ++ (show col) ++ ": " ++ msg
+-}
+--err :: AlexPosn -> String -> a
+--err (AlexPn _ line col) msg = error $ "Error in line " ++ (show line) ++ ", column " ++ (show col) ++ ": " ++ msg
 
 }
 
@@ -239,18 +239,22 @@ err (AlexPn _ line col) msg = error $ "Error in line " ++ (show line) ++ ", colu
 
 %%
 Program :: {State Context Program}
-Program		: var Declarations begin Commands end				{liftM2 Program (fmap reverse $2) (fmap reverse $4)}
+Program		: var Declarations begin Commands end				{liftM2 Program (return $ reverse $2) (fmap reverse $4)}
 
-Declarations :: {State Context [Declaration]}
-Declarations	: Declarations pidentifier					{do decls <- $1; return $ Scalar (fst $2) : decls}{--{do decls <- $1; ctx <- get; let (id, pos) = $2 in
+Declarations :: {[Declaration]}--{State Context [Declaration]}
+Declarations	: Declarations pidentifier					{Scalar (fst $2) (snd $2) : $1}
+{-{do decls <- $1; return $ Scalar (fst $2) : decls}-}
+{--{do decls <- $1; ctx <- get; let (id, pos) = $2 in
 											if scalarDeclared id ctx
 											then err pos $ "Variable named " ++ (show id) ++ " already declared."
 											else do put $ newScalar id ctx; return $ Scalar id : decls}--}
-		| Declarations pidentifier '[' num ']'				{do decls <- $1; return $ (Array (fst $2) $4) : decls} {-{do decls <- $1; ctx <- get; let (id, pos) = $2 in
+		| Declarations pidentifier '[' num ']'				{Array (fst $2) $4 (snd $2) : $1}
+{-{do decls <- $1; return $ (Array (fst $2) $4) : decls}-}
+{-{do decls <- $1; ctx <- get; let (id, pos) = $2 in
 											if arrayDeclared id ctx
 											then err pos $ "Variable named " ++ (show id) ++ " already declared."
 											else do put $ newArray id $4 ctx; return $ Array id $4 : decls}-}
-		| {- empty -}							{return []}
+		| {- empty -}							{[]}
 
 Commands :: {State Context [Command]}
 Commands	: Commands Command						{liftM2 (:) $2 $1}
@@ -296,9 +300,9 @@ Value		: num								{return $ Num $1}
 		| Identifier							{liftM Identifier $1}
 
 Identifier :: {State Context Identifier}
-Identifier	: pidentifier							{return $ Pidentifier (fst $1)} {-{state $ \ctx -> verifyScalarOrIter $1 ctx}-}
-		| pidentifier '[' pidentifier ']'				{return $ ArrayPidentifier (fst $1) (fst $3)} {-state $ \ctx -> verifyArrayPidentifier $1 $3 ctx}-}
-		| pidentifier '[' num ']'					{return $ ArrayNum (fst $1) $3} {-state $ \ctx -> verifyArrayNum $1 $3 ctx}-}
+Identifier	: pidentifier							{return $ Pidentifier (fst $1) (snd $1)} {-{state $ \ctx -> verifyScalarOrIter $1 ctx}-}
+		| pidentifier '[' pidentifier ']'				{return $ ArrayPidentifier (fst $1) (fst $3) (snd $1) (snd $3)} {-state $ \ctx -> verifyArrayPidentifier $1 $3 ctx}-}
+		| pidentifier '[' num ']'					{return $ ArrayNum (fst $1) $3 (snd $1)} {-state $ \ctx -> verifyArrayNum $1 $3 ctx}-}
 {
 parseError :: [TokWrap] -> a
 parseError [] = error ("Unknown parse error.")
