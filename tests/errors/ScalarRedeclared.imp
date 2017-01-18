@@ -1,0 +1,5 @@
+VAR
+  a a
+BEGIN
+  a := 12;
+END

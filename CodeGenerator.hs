@@ -4,7 +4,7 @@ import Control.Monad.State
 
 import Lexer
 import Parser
-import StaticAnalyzer
+import NewStaticAnalyzer
 import Optimizer
 
 data Instr
@@ -55,15 +55,15 @@ main = do
 	putStr "Program: "
 	print $ program
 	-- Static analysis.
-	let analyzed = evalState (analyze program) emptyContext
+	let analyzed = evalStateT (analyze program) emptyContext
 	putStr "Analyzed: "
-	print analyzed
+	case analyzed of
+		Left msg -> print msg
+		Right program -> print program
 	-- Optimizer.
 	--let optimized = optimize analyzed
 	-- Results
 	
 	--print optimized
 	--let (Program decls cmds) = program
-	--print $ evalState (analyzeDeclarations decls) emptyContext
-	--print $ evalState (analyzeCommands cmds) emptyContext
 	--print $ flowTree cmds

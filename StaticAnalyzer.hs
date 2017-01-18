@@ -1,5 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE Strict #-}
 module StaticAnalyzer where
 
 import Control.Monad.State

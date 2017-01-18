@@ -246,10 +246,10 @@ Declarations	: Declarations pidentifier					{do decls <- $1; return $ Scalar (fs
 											if scalarDeclared id ctx
 											then err pos $ "Variable named " ++ (show id) ++ " already declared."
 											else do put $ newScalar id ctx; return $ Scalar id : decls}--}
-		| Declarations pidentifier '[' num ']'				{do decls <- $1; ctx <- get; let (id, pos) = $2 in
+		| Declarations pidentifier '[' num ']'				{do decls <- $1; return $ (Array (fst $2) $4) : decls} {-{do decls <- $1; ctx <- get; let (id, pos) = $2 in
 											if arrayDeclared id ctx
 											then err pos $ "Variable named " ++ (show id) ++ " already declared."
-											else do put $ newArray id $4 ctx; return $ Array id $4 : decls}
+											else do put $ newArray id $4 ctx; return $ Array id $4 : decls}-}
 		| {- empty -}							{return []}
 
 Commands :: {State Context [Command]}
@@ -277,12 +277,12 @@ Expression	: Value								{liftM Value $1}
 		| Value '+' Value						{liftM2 Plus $1 $3}
 		| Value '-' Value						{liftM2 Minus $1 $3}
 		| Value '*' Value						{liftM2 Mul $1 $3}
-		| Value '/' Value						{do v <- $1; v' <- $3; ctx <- get; if evalValue v' ctx == Just 0
+		| Value '/' Value						{liftM2 Div $1 $3} {-{do v <- $1; v' <- $3; ctx <- get; if evalValue v' ctx == Just 0
 											then error "Division by zero!"
-											else do return $ Div v v'}
-		| Value '%' Value						{do v <- $1; v' <- $3; ctx <- get; if evalValue v' ctx == Just 0
+											else do return $ Div v v'}-}
+		| Value '%' Value						{liftM2 Mod $1 $3} {-{do v <- $1; v' <- $3; ctx <- get; if evalValue v' ctx == Just 0
 											then error "Modulo division by zero!"
-											else do return $ Mod v v'}
+											else do return $ Mod v v'}-}
 Condition :: {State Context Condition}
 Condition	: Value '=' Value						{liftM2 Eq $1 $3}
 		| Value "<>" Value						{liftM2 Neq $1 $3}
