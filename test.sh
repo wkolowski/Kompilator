@@ -1,6 +1,6 @@
 #!/bin/sh
 
-rm Lexer.hs Parser.hs; alex Lexer.x; happy Parser.y; ghc Lexer.hs Parser.hs Optimizer.hs CodeGenerator.hs -o compiler; rm *hi *o *~
+rm Lexer.hs Parser.hs; alex Lexer.x; happy Parser.y; ghc Lexer.hs Parser.hs StaticAnalyzer.hs Optimizer.hs CodeGenerator.hs -o compiler; rm *hi *o *~
 
 echo "Błędne programy od wykładowcy"
 for file in labor4/error*.imp; do

@@ -4,7 +4,7 @@ import Control.Monad.State
 
 import Lexer
 import Parser
-import NewStaticAnalyzer
+import StaticAnalyzer
 import Optimizer
 
 data Instr
@@ -51,7 +51,7 @@ main = do
 	-- Lexer.
 	let tokens = alexScanTokens code
 	-- Parser.
-	let program = evalState (parse tokens) emptyContext
+	let program = parse tokens
 	putStr "Program: "
 	print $ program
 	-- Static analysis.
