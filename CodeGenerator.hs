@@ -47,6 +47,8 @@ flowTree cmds = flowTree' cmds (Node [] Empty Empty)
 main = do
 	-- Read and sanitize the input.
 	text <- getContents
+	putStrLn "Kod: "
+	putStr text
 	let code = filter (\c -> 0 <= fromEnum c && fromEnum c < 128) text
 	-- Lexer.
 	let tokens = alexScanTokens code
