@@ -1,0 +1,5 @@
+VAR
+  a b[42]
+BEGIN
+  a := b[7];
+END

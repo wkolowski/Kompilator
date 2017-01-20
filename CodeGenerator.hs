@@ -55,7 +55,7 @@ main = do
 	-- Parser.
 	let program = parse tokens
 	--putStr "Program: "
-	--print $ program
+	print $ program
 	-- Static analysis.
 	let analyzed = evalStateT (analyze program) emptyContext
 	putStr "Analyzed: "

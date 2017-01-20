@@ -1,0 +1,6 @@
+VAR
+  a b
+BEGIN
+  b := 0;
+  a := 5 / b;
+END

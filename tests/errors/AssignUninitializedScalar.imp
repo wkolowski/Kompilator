@@ -1,0 +1,5 @@
+VAR
+  a b
+BEGIN
+  a := b;
+END
