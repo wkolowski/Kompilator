@@ -47,15 +47,15 @@ flowTree cmds = flowTree' cmds (Node [] Empty Empty)
 main = do
 	-- Read and sanitize the input.
 	text <- getContents
-	putStrLn "Kod: "
+	--putStrLn "Kod: "
 	putStr text
 	let code = filter (\c -> 0 <= fromEnum c && fromEnum c < 128) text
 	-- Lexer.
 	let tokens = alexScanTokens code
 	-- Parser.
 	let program = parse tokens
-	putStr "Program: "
-	print $ program
+	--putStr "Program: "
+	--print $ program
 	-- Static analysis.
 	let analyzed = evalStateT (analyze program) emptyContext
 	putStr "Analyzed: "

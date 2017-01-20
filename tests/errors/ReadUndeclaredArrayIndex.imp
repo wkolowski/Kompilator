@@ -1,0 +1,5 @@
+VAR
+  a[42]
+BEGIN
+  READ a[b];
+END

@@ -1,0 +1,5 @@
+VAR
+  a[2]
+BEGIN
+  WRITE a[0];
+END
