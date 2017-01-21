@@ -1,9 +1,8 @@
 module Optimizer where
 
-import Control.Monad.State
+import Control.Monad
 
-import Lexer
-import Parser
+import AST
 
 foldConsts :: Program -> Program
 foldConsts (Program decls cmds) = Program decls (map foldConstsCmd cmds)
@@ -22,6 +21,7 @@ foldConstsExpr e = case e of
 	Plus (Num n) (Num n') -> Value $ Num (n + n')
 	Plus (Num 0) v -> Value v
 	Plus v (Num 0) -> Value v
+	Plus v v'@(Num _) -> Plus v' v -- TODO WUT
 	Minus (Num n) (Num n') -> Value $ Num (max (n - n') 0)
 	Minus v (Num 0) -> Value v
 	Mul (Num n) (Num n') -> Value $ Num (n * n')
@@ -86,7 +86,6 @@ simplAsgnCmd cmd = case cmd of
 	ForUp name v v' cmds -> return $ ForUp name v v' (join $ map simplAsgnCmd cmds)
 	ForDown name v v' cmds -> return $ ForDown name v v' (join $ map simplAsgnCmd cmds)
 	_ -> [cmd]
-	
 
 optimize :: Program -> Program
 optimize = simplAsgn . simplConds . foldConsts

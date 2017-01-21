@@ -2,6 +2,7 @@
 	module Lexer where
 }
 
+-- This gives us info about line number and column.
 %wrapper "posn"
 
 tokens :-
@@ -9,7 +10,8 @@ tokens :-
 	$white			;
 	\{[^\}]*\}		;
 
-	-- Keywords.
+	-- Keywords. First argument is info about line and column number, second
+	-- is the matched string (same as the keyword, so it's discarded).
 	VAR			{\p _ -> TW TVAR p}
 	BEGIN			{\p _ -> TW TBEGIN p}
 	END			{\p _ -> TW TEND p}
@@ -49,8 +51,6 @@ tokens :-
 	\;			{\p _ -> TW TSemicolon p}
 
 	-- Parentheses and brackets.
-	\(			{\p _ -> TW TLParen p}
-	\)			{\p _ -> TW TRParen p}
 	\[			{\p _ -> TW TLBracket p}
 	\]			{\p _ -> TW TRBracket p}
 
@@ -71,8 +71,8 @@ data Token
 	| TEq | TNeq | TLt | TLe | TGe | TGt
 	-- Assignment and semicolon.
 	| TAsgn | TSemicolon
-	-- Parentheses and brackets.
-	| TLParen | TRParen | TLBracket | TRBracket
+	-- Brackets.
+	| TLBracket | TRBracket
 	-- Numbers.
 	| TNum Integer
 	-- Identifiers.
@@ -80,8 +80,4 @@ data Token
 	deriving (Eq, Show)
 
 data TokWrap = TW Token AlexPosn deriving (Show)
-
-test = do
-	s <- getContents
-	print (alexScanTokens s)
 }

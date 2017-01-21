@@ -1,14 +1,16 @@
 module StaticAnalyzer where
 
 import Control.Monad
-import Control.Monad.Trans.State
-import qualified Data.Map.Strict as Map
-import Data.Maybe
 import Control.Monad.Trans
+import Control.Monad.Trans.State
 
-import Lexer
-import Parser
+import Data.Maybe
+import qualified Data.Map.Strict as Map
 
+import AST
+
+-- Error is for static analysis errors, Name is for names of variables, Size
+-- is for array sizes and index represents array indices.
 type Error = String
 type Name = String
 type Size = Integer
@@ -114,14 +116,6 @@ computeScalar name pos = do
 		Uninitialized -> errT pos $ "Tried to use uninitialized scalar variable " ++ name ++ "."
 		Initialized -> return Unknown
 		HasValue n -> return $ Known n
-
-{-computeIter :: Name -> AlexPosn -> StateT Context (Either Error) ComputationResult
-computeIter name pos = do
-	vst <- getIter name pos
-	case vst of
-		Uninitialized -> errT pos $ "Tried to use uninitialized iterator variable " ++ name ++ "."
-		Initialized -> return Unknown
-		HasValue n -> return $ Known n-}
 
 computeScalarOrIter :: Name -> AlexPosn -> StateT Context (Either Error) ComputationResult
 computeScalarOrIter name pos = do
@@ -272,7 +266,7 @@ assertIdentifierInitialized id = case id of
 			Initialized -> return ()
 			HasValue index -> assertArrayNumInitialized name index namePos
 
--- Checks whether index is correct.
+-- Monadic guard that checks whether index is correct.
 assertIndexInBounds :: Name -> Index -> AlexPosn -> StateT Context (Either Error) ()
 assertIndexInBounds name index pos = getArrayIndex name index pos >> return ()
 
@@ -338,7 +332,8 @@ declareIter name pos = do
 	modify $ \ctx -> ctx {iterators = Map.insert name Initialized (iterators ctx)}
 	return ()
 
--- Does static analysis.
+-- The result of static analysis is the first encountered error, if there is any,
+-- and otherwise the AST unchanged.
 analyze :: Program -> StateT Context (Either Error) Program
 analyze (Program decls cmds) = liftM2 Program (analyzeDeclarations decls) (analyzeCommands cmds)
 
