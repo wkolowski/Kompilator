@@ -1,0 +1,8 @@
+VAR
+  a[2] b
+BEGIN
+  READ a[0];
+  READ a[1];
+  b := a[0] + a[1];
+  WRITE b;
+END

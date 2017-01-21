@@ -1,0 +1,5 @@
+VAR
+  a
+BEGIN
+  a := 11;
+END

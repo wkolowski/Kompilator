@@ -1,0 +1,14 @@
+VAR
+  a b
+BEGIN
+  a := 0;
+  b := 0;
+  IF 2 <= 3 THEN
+    a := 42;
+  ELSE
+    b := 42;
+  ENDIF
+
+  WRITE a;
+  WRITE b;
+END
