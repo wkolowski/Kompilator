@@ -19,6 +19,7 @@ instance Show Reg where
 	show R1 = show 1
 	show R2 = show 2
 	show R3 = show 3
+	show R4 = show 4
 
 -- Program counter.
 type PC = Integer
@@ -78,11 +79,11 @@ incLineNumber k = do
 	modify $ \(memory, lineNumber) -> (memory, lineNumber + k)
 	return ()
 
--- Generate code
+-- translate code
 generateCode :: Program -> StateT GenState (Either Error) [Instr]
 generateCode (Program decls cmds) = do
 	allocateAll decls
-	i <- generateCommands cmds
+	i <- translateCommands cmds
 	incLineNumber 1
 	return $ i ++ [HALT]
 
@@ -109,72 +110,111 @@ allocateAll decls = case processDeclarations decls of
 		modify $ \(_, lineNumber) -> (memory, lineNumber)
 		return ()
 
-generateCommands :: [Command] -> StateT GenState (Either Error) [Instr]
-generateCommands cmds = fmap join $ mapM generateCommand cmds
+translateCommands :: [Command] -> StateT GenState (Either Error) [Instr]
+translateCommands cmds = fmap join $ mapM translateCommand cmds
 
-generateCommand :: Command -> StateT GenState (Either Error) [Instr]
-generateCommand cmd = case cmd of
-	Asgn id exp -> generateAsgn id exp --generateAsgn id expr
-	If cond cmds cmds' -> generateIf cond cmds cmds'
-	While cond cmds -> undefined --generateWhile cond cmds
-	ForUp name v v' cmds -> undefined --generateForUp name v v'
-	ForDown name v v' cmds -> undefined --generateForDown name v v'
-	Read id -> generateRead id
-	Write val -> generateWrite val --undefined --generateWrite val
+translateCommand :: Command -> StateT GenState (Either Error) [Instr]
+translateCommand cmd = case cmd of
+	Asgn id exp -> translateAsgn id exp --translateAsgn id expr
+	If cond cmds cmds' -> translateIf cond cmds cmds'
+	While cond cmds -> translateWhile cond cmds
+	ForUp name v v' cmds -> undefined --translateForUp name v v'
+	ForDown name v v' cmds -> undefined --translateForDown name v v'
+	Read id -> translateRead id
+	Write val -> translateWrite val --undefined --translateWrite val
 	_ -> return []
 
-generateAsgn :: Identifier -> Expression -> StateT GenState (Either Error) [Instr]
-generateAsgn id exp = do
+translateAsgn :: Identifier -> Expression -> StateT GenState (Either Error) [Instr]
+translateAsgn id exp = do
 	i <- loadExpression exp R1
 	i' <- loadAddressToR0 id R4 -- It gets loaded to R0. R4 is just intermediate.
 	incLineNumber 1
 	return $ i ++ i' ++ [STORE R1]
 
-generateWrite :: Value -> StateT GenState (Either Error) [Instr]
-generateWrite v = do
+translateWrite :: Value -> StateT GenState (Either Error) [Instr]
+translateWrite v = do
 	i <- loadValue v R1
 	incLineNumber 1
 	return $ i ++ [PUT R1]
 
-generateRead :: Identifier -> StateT GenState (Either Error) [Instr]
-generateRead id = do
+translateRead :: Identifier -> StateT GenState (Either Error) [Instr]
+translateRead id = do
 	i <- loadAddressToR0 id R4
 	incLineNumber 2
 	return $ i ++ [GET R1, STORE R1]
 
-generateIf :: Condition -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
-generateIf cond cmds cmds' = case cond of
-	Le v v' -> generateIfLe v v' cmds cmds'
-	Ge v v' -> generateIfLe v' v cmds cmds'
-	Lt v v' -> generateIfLe v' v cmds' cmds
-	Gt v v' -> generateIfLe v v' cmds' cmds
-	Eq v v' -> generateIfEq v v' cmds cmds'
-	Neq v v' -> generateIfEq v v' cmds' cmds
+translateIf :: Condition -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
+translateIf cond cmds cmds' = case cond of
+	Le v v' -> translateIfLe v v' cmds cmds'
+	Ge v v' -> translateIfLe v' v cmds cmds'
+	Lt v v' -> translateIfLe v' v cmds' cmds
+	Gt v v' -> translateIfLe v v' cmds' cmds
+	Eq v v' -> translateIfEq v v' cmds cmds'
+	Neq v v' -> translateIfEq v v' cmds' cmds
 
-generateIfLe :: Value -> Value -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
-generateIfLe v v' cmds cmds' = do
+translateIfLe :: Value -> Value -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
+translateIfLe v v' cmds cmds' = do
 	c <- computeCondition (Le v v') R1 R2
 	incLineNumber 1
-	i' <- generateCommands cmds'
+	i' <- translateCommands cmds'
 	incLineNumber 1
 	(_, afterJump) <- get
-	i <- generateCommands cmds
+	i <- translateCommands cmds
 	(_, end) <- get
 	return $ c ++ [JZERO R1 afterJump] ++ i' ++ [JUMP end] ++ i
 
-generateIfEq :: Value -> Value -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
-generateIfEq v v' cmds cmds' = do
-	c <- computeCondition (Eq v v') R1 R2
+translateIfEq :: Value -> Value -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
+translateIfEq v v' cmds cmds' = do
+	c <- computeCondition (Eq v v') R2 R3
 	incLineNumber 2
 	(_, secondJump) <- get
 	incLineNumber 2
 	(_, thenLine) <- get
-	thenCode <- generateCommands cmds
+	thenCode <- translateCommands cmds
 	incLineNumber 1
 	(_, elseLine) <- get
-	elseCode <- generateCommands cmds'
+	elseCode <- translateCommands cmds'
 	(_, endLine) <- get
-	return $ c ++ [JZERO R1 secondJump, JUMP elseLine, JZERO R2 thenLine, JUMP elseLine] ++ thenCode ++ [JUMP endLine] ++ elseCode
+	return $ c ++ [JZERO R2 secondJump, JUMP elseLine, JZERO R3 thenLine, JUMP elseLine] ++ thenCode ++ [JUMP endLine] ++ elseCode
+
+translateWhile :: Condition -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhile cond cmds = case cond of
+	Le v v' -> translateWhileLe v v' cmds
+	--Ge v v' -> translateWhileLe v' v cmds
+	--Lt v v' -> translateWhileLe v' v cmds
+	--Gt v v' -> translateWhileLe v v' cmds
+	--Eq v v' -> translateWhileEq v v' cmds
+	--Neq v v' -> translateWhileEq v v' cmds
+
+translateWhileLe :: Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhileLe v v' cmds = do
+	(_, startOfWhile) <- get
+	c <- computeCondition (Le v v') R2 R3
+	incLineNumber 2
+	(_, afterCond) <- get
+	whileCode <- translateCommands cmds
+	incLineNumber 1
+	(_, endOfWhile) <- get
+	return $ c ++ [JZERO R2 afterCond, JUMP endOfWhile] ++ whileCode ++ [JUMP startOfWhile]
+
+{-translateWhileLeGe :: Condition -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhileLeGe cond cmds = case cond of
+	Eq _ _ -> error "translateWhileOrd can't be called with Eq."
+	Neq _ _ -> error "translateWhileOrd can't be called with Neq."
+	Lt _ _ -> error "translateWhileOrd can't be called with Neq."
+	Gt _ _ -> error "translateWhileOrd can't be called with Neq."
+	_ -> do
+		(_, startOfWhile) <- get
+		c <- computeCondition cond R2 R3
+		incLineNumber 2
+		(_, afterCond) <- get
+		whileCode <- translateCommands cmds
+		incLineNumber 1
+		(_, endOfWhile) <- get
+		return $ c ++ [JZERO R2 afterCond, JUMP endOfWhile] ++ whileCode ++ [JUMP startOfWhile]-}
+
+translateWhileEq = undefined
+
 
 -- Instructions that write a constant into a register.
 data BinaryDigit = B0 | B1 deriving (Eq, Show)
@@ -233,7 +273,10 @@ loadValue val reg = case val of
 		return $ i ++ [LOAD reg]
 
 loadExpression :: Expression -> Reg -> StateT GenState (Either Error) [Instr]
-loadExpression exp reg = case exp of
+loadExpression exp reg
+	| reg == R4 = errT $ "Can't use R4 in loadExpression because it's for intermediate results."
+	| otherwise = case exp of
+
 	Value v -> loadValue v reg
 
 	Plus (Num n) (Num n') -> loadConst (n + n') reg
@@ -250,7 +293,11 @@ loadExpression exp reg = case exp of
 		return $ i ++ [LOAD reg] ++ i' ++ [ADD reg]
 
 	Minus (Num n) (Num n') -> loadConst (max 0 (n - n')) reg
-	Minus v@(Identifier id) v'@(Num n') -> loadExpression (Minus v' v) reg
+	Minus v@(Identifier id) v'@(Num n') -> do -- This is VERY inefficient.
+		i <- loadValue v reg
+		let i' = take (fromInteger n') $ [DEC reg]
+		incLineNumber $ n'
+		return $ i ++ i' 
 	Minus (Num n) (Identifier id') -> do
 		i <- loadConst n reg
 		i' <- loadAddressToR0 id' R4
@@ -258,18 +305,19 @@ loadExpression exp reg = case exp of
 		return $ i ++ i' ++ [SUB reg]
 	Minus (Identifier id) (Identifier id') -> do
 		i <- loadAddressToR0 id R4
+		incLineNumber 1
 		i' <- loadAddressToR0 id' R4
-		incLineNumber 2
+		incLineNumber 1
 		return $ i ++ [LOAD reg] ++ i' ++ [SUB reg]
 
 	_ -> error "Hej, koniu! Zaimplementuj mnożenie i dzielenie."
 
 computeCondition :: Condition -> Reg -> Reg -> StateT GenState (Either Error) [Instr]
 computeCondition cond reg reg' = case cond of
-	Le v v' -> loadExpression (Minus v v') reg
-	Ge v v' -> computeCondition (Le v' v) reg reg'
-	Lt v v' -> loadExpression (Minus v' v) reg
-	Gt v v' -> computeCondition (Lt v' v) reg reg'
+	Le v v' -> loadExpression (Minus v v') reg	-- 0 in reg means true.
+	Ge v v' -> loadExpression (Minus v' v) reg	-- 0 in reg means true.
+	Lt v v' -> loadExpression (Minus v' v) reg	-- 0 in reg means false.
+	Gt v v' -> loadExpression (Minus v v') reg	-- 0 in reg means false.
 	Eq v v' -> do
 		i <- loadExpression (Minus v v') reg
 		i' <- loadExpression (Minus v' v) reg'

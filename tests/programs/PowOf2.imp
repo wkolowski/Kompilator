@@ -1,0 +1,16 @@
+VAR
+  n r i
+BEGIN
+  READ n;
+  IF n = 0 THEN
+    WRITE 1;
+  ELSE
+    r := 2;
+    i := 2;
+    WHILE i <= n DO
+      r := r + r;
+      i := i + 1;
+    ENDWHILE
+    WRITE r;
+  ENDIF
+END

@@ -29,7 +29,7 @@ main = do
 		Right analyzedProgram -> do
 			--print analyzedProgram
 			-- Optimizer.
-			let optimizedProgram = optimize analyzedProgram
+			let optimizedProgram = analyzedProgram --optimize analyzedProgram
 			-- Results
 			--print optimized
 			let (Program decls cmds) = analyzedProgram
@@ -41,5 +41,6 @@ main = do
 				Left msg -> print msg
 				Right (instructions, (_, numOfLines)) -> do
 					hPutStrLn stderr $ "Number of lines is " ++ show numOfLines ++ ", but number of instructions is " ++ show (length instructions ) ++ "."
-					mapM_ print instructions --(zip instructions [1..numOfLines])
+					mapM_ (\(i, l) -> hPutStrLn stderr $ show l ++ " " ++ show i) (zip instructions [0..])
+					mapM_ print instructions
 			--print $ flowTree cmds

@@ -1,0 +1,10 @@
+VAR
+  n i
+BEGIN
+  READ n;
+  i := 1;
+  WHILE i <= n DO
+    i := i + 1;
+  ENDWHILE
+  WRITE i;
+END
