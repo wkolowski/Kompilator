@@ -3,6 +3,8 @@ module Main where
 import Control.Monad.State
 import qualified Data.Map.Strict as Map
 
+import System.IO
+
 import AST
 import Lexer
 import Parser
@@ -34,8 +36,10 @@ main = do
 			{-case processDeclarations decls of
 				Left msg -> print msg
 				Right memory -> print $ memory-}
-			let i = evalStateT (generateCode optimizedProgram) emptyMemory
-			case i of
+			let r = runStateT (generateCode optimizedProgram) (emptyMemory, 0)
+			case r of
 				Left msg -> print msg
-				Right instructions -> mapM_ print instructions
+				Right (instructions, (_, numOfLines)) -> do
+					hPutStrLn stderr $ "Number of lines is " ++ show numOfLines ++ ", but number of instructions is " ++ show (length instructions ) ++ "."
+					mapM_ print instructions --(zip instructions [1..numOfLines])
 			--print $ flowTree cmds
