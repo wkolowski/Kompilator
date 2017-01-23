@@ -1,0 +1,11 @@
+VAR
+  a b
+BEGIN
+  a := 42;
+  READ b;
+  WHILE a = b DO
+    READ b;
+  ENDWHILE
+  WRITE a;
+  WRITE b;
+END

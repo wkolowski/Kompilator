@@ -1,0 +1,9 @@
+VAR
+  a
+BEGIN
+  READ a;
+  WHILE a > 0 DO
+    a := a - 1;
+  ENDWHILE
+  WRITE a;
+END

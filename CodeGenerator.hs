@@ -89,7 +89,7 @@ generateCode (Program decls cmds) = do
 
 -- Allocate memory.
 processDeclarations :: [Declaration] -> Either Error Memory
-processDeclarations decls = evalStateT (foldM allocate emptyMemory decls) 0
+processDeclarations decls = evalStateT (foldM allocate emptyMemory decls) 1
 
 allocate :: Memory -> Declaration -> StateT Integer (Either Error) Memory
 allocate memory decl = do
@@ -180,11 +180,11 @@ translateIfEq v v' cmds cmds' = do
 translateWhile :: Condition -> [Command] -> StateT GenState (Either Error) [Instr]
 translateWhile cond cmds = case cond of
 	Le v v' -> translateWhileLe v v' cmds
-	--Ge v v' -> translateWhileLe v' v cmds
-	--Lt v v' -> translateWhileLe v' v cmds
-	--Gt v v' -> translateWhileLe v v' cmds
-	--Eq v v' -> translateWhileEq v v' cmds
-	--Neq v v' -> translateWhileEq v v' cmds
+	Ge v v' -> translateWhileLe v' v cmds
+	Lt v v' -> translateWhileLt v v' cmds
+	Gt v v' -> translateWhileLt v' v cmds
+	Eq v v' -> translateWhileEq v v' cmds
+	Neq v v' -> translateWhileNeq v v' cmds
 
 translateWhileLe :: Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
 translateWhileLe v v' cmds = do
@@ -197,24 +197,41 @@ translateWhileLe v v' cmds = do
 	(_, endOfWhile) <- get
 	return $ c ++ [JZERO R2 afterCond, JUMP endOfWhile] ++ whileCode ++ [JUMP startOfWhile]
 
-{-translateWhileLeGe :: Condition -> [Command] -> StateT GenState (Either Error) [Instr]
-translateWhileLeGe cond cmds = case cond of
-	Eq _ _ -> error "translateWhileOrd can't be called with Eq."
-	Neq _ _ -> error "translateWhileOrd can't be called with Neq."
-	Lt _ _ -> error "translateWhileOrd can't be called with Neq."
-	Gt _ _ -> error "translateWhileOrd can't be called with Neq."
-	_ -> do
-		(_, startOfWhile) <- get
-		c <- computeCondition cond R2 R3
-		incLineNumber 2
-		(_, afterCond) <- get
-		whileCode <- translateCommands cmds
-		incLineNumber 1
-		(_, endOfWhile) <- get
-		return $ c ++ [JZERO R2 afterCond, JUMP endOfWhile] ++ whileCode ++ [JUMP startOfWhile]-}
+translateWhileLt :: Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhileLt v v' cmds = do
+	(_, startOfWhile) <- get
+	c <- computeCondition (Lt v v') R2 R3
+	incLineNumber 1
+	whileCode <- translateCommands cmds
+	incLineNumber 1
+	(_, endOfWhile) <- get
+	return $ c ++ [JZERO R2 endOfWhile] ++ whileCode ++ [JUMP startOfWhile]
 
-translateWhileEq = undefined
+translateWhileEq :: Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhileEq v v' cmds = do
+	(_, startOfWhile) <- get
+	c <- computeCondition (Eq v v') R2 R3
+	incLineNumber 2
+	(_, secondJump) <- get
+	incLineNumber 2
+	(_, codeLine) <- get
+	code <- translateCommands cmds
+	incLineNumber 1
+	(_, endLine) <- get
+	return $ c ++ [JZERO R2 secondJump, JUMP endLine, JZERO R3 codeLine, JUMP endLine] ++ code ++ [JUMP startOfWhile]
 
+translateWhileNeq :: Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhileNeq v v' cmds = do
+	(_, startOfWhile) <- get
+	c <- computeCondition (Eq v v') R2 R3
+	incLineNumber 2
+	(_, secondJump) <- get
+	incLineNumber 1
+	(_, codeLine) <- get
+	code <- translateCommands cmds
+	incLineNumber 1
+	(_, endOfWhile) <- get
+	return $ c ++ [JZERO R2 secondJump, JUMP codeLine, JZERO R3 endOfWhile] ++ code ++ [JUMP startOfWhile]
 
 -- Instructions that write a constant into a register.
 data BinaryDigit = B0 | B1 deriving (Eq, Show)
@@ -241,7 +258,6 @@ loadConst :: Integer -> Reg -> StateT GenState (Either Error) [Instr]
 loadConst n reg = do
 	instructions <- lift $ loadConst' n reg
 	incLineNumber (toInteger $ length instructions)
-	--error $ show $ length instructions
 	return instructions
 
 -- Load address of id to R0 using reg to keep intermediate results.
@@ -295,9 +311,9 @@ loadExpression exp reg
 	Minus (Num n) (Num n') -> loadConst (max 0 (n - n')) reg
 	Minus v@(Identifier id) v'@(Num n') -> do -- This is VERY inefficient.
 		i <- loadValue v reg
-		let i' = take (fromInteger n') $ [DEC reg]
+		let i' = take (fromInteger n') $ repeat (DEC reg)
 		incLineNumber $ n'
-		return $ i ++ i' 
+		return $ i ++ i'
 	Minus (Num n) (Identifier id') -> do
 		i <- loadConst n reg
 		i' <- loadAddressToR0 id' R4
@@ -309,6 +325,34 @@ loadExpression exp reg
 		i' <- loadAddressToR0 id' R4
 		incLineNumber 1
 		return $ i ++ [LOAD reg] ++ i' ++ [SUB reg]
+
+	Mul (Num n) (Num m') -> loadConst (n * m') reg
+	Mul v v'@(Num n') -> loadExpression (Mul v' v) reg
+	Mul v v'@(Identifier id') -> do
+		incLineNumber 1
+		i <- loadValue v R2
+		i' <- loadValue v' R3
+		i'' <- loadAddressToR0 id' R4
+		incLineNumber 1
+		(_, start) <- get
+		incLineNumber 2
+		(_, add) <- get
+		incLineNumber 7
+		(_, end) <- get
+		return $ [ZERO R1] ++ i ++ i' ++ i'' ++ [LOAD R4, JODD R2 add, JUMP (add + 1), ADD R1, SHR R2, SHL R3, STORE R3, JZERO R2 end, JUMP start, STORE R4]
+
+	Mul _ _ -> error "The impossible happened"
+
+	Div (Num n) (Num n') -> loadConst (n `div` n') reg
+	Div v v' -> do
+		i <- loadValue v R2
+		i' <- loadValue v' R3
+		incLineNumber 4
+		(_, start) <- get
+		incLineNumber 4
+		(_, end) <- get
+
+		return $ i ++ i' ++ [ZERO R0, STORE R3, ZERO R1] ++ [INC R2, SUB R2, JZERO R2 end, INC R1, JUMP start]
 
 	_ -> error "Hej, koniu! Zaimplementuj mnożenie i dzielenie."
 
