@@ -1,0 +1,10 @@
+VAR
+  n r
+BEGIN
+  READ n;
+  r := 0;
+  FOR i FROM n DOWNTO 1 DO
+    r := r + i;
+  ENDFOR
+  WRITE r;
+END

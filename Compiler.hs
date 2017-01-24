@@ -29,7 +29,7 @@ main = do
 		Right analyzedProgram -> do
 			--print analyzedProgram
 			-- Optimizer.
-			let optimizedProgram = analyzedProgram --optimize analyzedProgram
+			let optimizedProgram = optimize analyzedProgram
 			-- Results
 			--print optimized
 			let (Program decls cmds) = analyzedProgram

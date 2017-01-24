@@ -44,16 +44,16 @@ type Size = Integer
 type Error = String
 type Name = String
 type LineNumber = Integer
+type MemoryPosition = Integer
 
---type Memory = Map.Map Name MemEntry
-data Memory = Memory {scalars :: Map.Map Name Address, arrays :: Map.Map Name (Size, Address)}
+data Memory = Memory {scalars :: Map.Map Name Address, arrays :: Map.Map Name (Size, Address), position :: MemoryPosition}
 
 instance Show Memory where
 	show memory = Map.union (fmap (\address -> (address, 1)) (scalars memory)) (fmap (\(size, address) -> (address, size)) (arrays memory))
 		    $> Map.toList $> sortBy (\x y -> compare (fst . snd $ x) (fst . snd $ y)) $> show
 
 emptyMemory :: Memory
-emptyMemory = Memory {scalars = Map.empty, arrays = Map.empty}
+emptyMemory = Memory {scalars = Map.empty, arrays = Map.empty, position = 1}
 
 getScalar :: Name -> StateT GenState (Either Error) Address
 getScalar name = StateT $ \(memory, lineNumber) -> case Map.lookup name (scalars memory) of
@@ -74,6 +74,19 @@ errT msg = StateT $ \_ -> Left msg
 -- in order to calculate jump labels properly.
 type GenState = (Memory, LineNumber)
 
+getLineNumber :: StateT GenState (Either Error) LineNumber
+getLineNumber = do
+	(_, lineNumber) <- get
+	return lineNumber
+
+getMemory :: StateT GenState (Either Error) Memory
+getMemory = do
+	(memory, _) <- get
+	return memory
+
+getMemoryPosition :: StateT GenState (Either Error) MemoryPosition
+getMemoryPosition = liftM position getMemory
+
 incLineNumber :: Integer -> StateT GenState (Either Error) ()
 incLineNumber k = do
 	modify $ \(memory, lineNumber) -> (memory, lineNumber + k)
@@ -87,41 +100,41 @@ generateCode (Program decls cmds) = do
 	incLineNumber 1
 	return $ i ++ [HALT]
 
--- Allocate memory.
-processDeclarations :: [Declaration] -> Either Error Memory
-processDeclarations decls = evalStateT (foldM allocate emptyMemory decls) 1
+allocateScalar :: Name -> StateT GenState (Either Error) ()
+allocateScalar name =
+	modify $ \(memory, lineNumber) -> (memory {scalars = Map.insert name (position memory) (scalars memory), position = position memory + 1}, lineNumber)
 
-allocate :: Memory -> Declaration -> StateT Integer (Either Error) Memory
-allocate memory decl = do
-	memoryLocation <- get
-	if memoryLocation < 0 then errT "Memory location can't be less than 0." else return ()
-	case decl of
-		AST.Scalar name _ -> do
-			put $ memoryLocation + 1
-			return $ memory {scalars = Map.insert name memoryLocation (scalars memory)}
-		AST.Array name size  _ -> do
-			put $ memoryLocation + size
-			return $ memory {arrays = Map.insert name (size, memoryLocation) (arrays memory)}
+deallocateScalar :: Name -> StateT GenState (Either Error) ()
+deallocateScalar name = modify $ \(memory, lineNumber) -> (memory {scalars = Map.delete name (scalars memory), position = position memory - 1}, lineNumber)
+
+allocateArray :: Name -> Size -> StateT GenState (Either Error) ()
+allocateArray name size =
+	modify $ \(memory, lineNumber) -> (memory {arrays = Map.insert name (size, position memory) (arrays memory), position = position memory + size}, lineNumber)
+
+allocate :: Declaration -> StateT GenState (Either Error) ()
+allocate decl = case decl of
+	AST.Scalar name _ -> allocateScalar name
+	AST.Array name size  _ -> allocateArray name size
 
 allocateAll :: [Declaration] -> StateT GenState (Either Error) ()
-allocateAll decls = case processDeclarations decls of
-	Left msg -> errT msg
-	Right memory -> do
-		modify $ \(_, lineNumber) -> (memory, lineNumber)
-		return ()
+allocateAll decls = do
+	memoryPosition <- getMemoryPosition
+	if memoryPosition < 0
+	then errT "Memory position can't be less than 0"
+	else mapM allocate decls >> return ()
 
 translateCommands :: [Command] -> StateT GenState (Either Error) [Instr]
 translateCommands cmds = fmap join $ mapM translateCommand cmds
 
 translateCommand :: Command -> StateT GenState (Either Error) [Instr]
 translateCommand cmd = case cmd of
-	Asgn id exp -> translateAsgn id exp --translateAsgn id expr
+	Asgn id exp -> translateAsgn id exp
 	If cond cmds cmds' -> translateIf cond cmds cmds'
 	While cond cmds -> translateWhile cond cmds
-	ForUp name v v' cmds -> undefined --translateForUp name v v'
-	ForDown name v v' cmds -> undefined --translateForDown name v v'
+	ForUp name v v' cmds -> translateForUp name v v' cmds
+	ForDown name v v' cmds -> translateForDown name v v' cmds
 	Read id -> translateRead id
-	Write val -> translateWrite val --undefined --translateWrite val
+	Write val -> translateWrite val
 	_ -> return []
 
 translateAsgn :: Identifier -> Expression -> StateT GenState (Either Error) [Instr]
@@ -233,6 +246,38 @@ translateWhileNeq v v' cmds = do
 	(_, endOfWhile) <- get
 	return $ c ++ [JZERO R2 secondJump, JUMP codeLine, JZERO R3 endOfWhile] ++ code ++ [JUMP startOfWhile]
 
+translateForUp :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateForUp name v v' cmds = do
+	allocateScalar name
+	let iter = Pidentifier name undefined -- WARNING
+	i1 <- translateAsgn iter (Value v)
+	startOfFor <- getLineNumber
+	i2 <- computeCondition (Le (Identifier iter) v') R2 R3
+	incLineNumber 2
+	loopLine <- getLineNumber
+	i3 <- translateCommands cmds
+	i4 <- translateAsgn iter (Plus (Identifier iter) (Num 1))
+	incLineNumber 1
+	endOfFor <- getLineNumber
+	deallocateScalar name
+	return $ i1 ++ i2 ++ [JZERO R2 loopLine, JUMP endOfFor] ++ i3 ++ i4 ++ [JUMP startOfFor]
+
+translateForDown :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateForDown name v v' cmds = do
+	allocateScalar name
+	let iter = Pidentifier name undefined -- WARNING
+	i1 <- translateAsgn iter (Value v)
+	startOfFor <- getLineNumber
+	i2 <- computeCondition (Le v' (Identifier iter)) R2 R3
+	incLineNumber 2
+	loopLine <- getLineNumber
+	i3 <- translateCommands cmds
+	i4 <- translateAsgn iter (Minus (Identifier iter) (Num 1))
+	incLineNumber 1
+	endOfFor <- getLineNumber
+	deallocateScalar name
+	return $ i1 ++ i2 ++ [JZERO R2 loopLine, JUMP endOfFor] ++ i3 ++ i4 ++ [JUMP startOfFor]
+
 -- Instructions that write a constant into a register.
 data BinaryDigit = B0 | B1 deriving (Eq, Show)
 
@@ -309,11 +354,15 @@ loadExpression exp reg
 		return $ i ++ [LOAD reg] ++ i' ++ [ADD reg]
 
 	Minus (Num n) (Num n') -> loadConst (max 0 (n - n')) reg
-	Minus v@(Identifier id) v'@(Num n') -> do -- This is VERY inefficient.
-		i <- loadValue v reg
+	Minus v@(Identifier id) v'@(Num n') -> do -- This is VERY inefficient. UPDATE: better now.
+		{-i <- loadValue v reg
 		let i' = take (fromInteger n') $ repeat (DEC reg)
 		incLineNumber $ n'
-		return $ i ++ i'
+		return $ i ++ i'-}
+		i <- loadValue v reg
+		i' <- loadConst n' R4
+		incLineNumber 3
+		return $ i ++ i' ++ [ZERO R0, STORE R4, SUB R1]
 	Minus (Num n) (Identifier id') -> do
 		i <- loadConst n reg
 		i' <- loadAddressToR0 id' R4
@@ -328,6 +377,10 @@ loadExpression exp reg
 
 	Mul (Num n) (Num m') -> loadConst (n * m') reg
 	Mul v v'@(Num n') -> loadExpression (Mul v' v) reg
+	Mul v@(Num 2) v' -> do
+		i <- loadValue v' reg
+		incLineNumber 1
+		return $ i ++ [SHL reg]
 	Mul v v'@(Identifier id') -> do
 		incLineNumber 1
 		i <- loadValue v R2
@@ -341,20 +394,39 @@ loadExpression exp reg
 		(_, end) <- get
 		return $ [ZERO R1] ++ i ++ i' ++ i'' ++ [LOAD R4, JODD R2 add, JUMP (add + 1), ADD R1, SHR R2, SHL R3, STORE R3, JZERO R2 end, JUMP start, STORE R4]
 
-	Mul _ _ -> error "The impossible happened"
 
 	Div (Num n) (Num n') -> loadConst (n `div` n') reg
+	Div v (Num 2) -> do
+		i <- loadValue v reg
+		incLineNumber 1
+		return $ i ++ [SHR reg]
 	Div v v' -> do
-		i <- loadValue v R2
+		{-i <- loadValue v R2 -- TODO: ogarnąć, co ma tu być (być może reg?)
 		i' <- loadValue v' R3
 		incLineNumber 4
 		(_, start) <- get
 		incLineNumber 4
 		(_, end) <- get
 
-		return $ i ++ i' ++ [ZERO R0, STORE R3, ZERO R1] ++ [INC R2, SUB R2, JZERO R2 end, INC R1, JUMP start]
+		return $ i ++ i' ++ [ZERO R0, STORE R3, ZERO R1] ++ [INC R2, SUB R2, JZERO R2 end, INC R1, JUMP start]-}
+		i <- loadValue v R2 -- TODO: ogarnąć, co ma tu być (być może reg?)
+		i' <- loadValue v' R3
+		incLineNumber 3
+		start <- getLineNumber
+		incLineNumber 10
+		end <- getLineNumber
+		return $ i ++ i' ++ [ZERO R1, INC R2, ZERO R0] ++  [STORE R2, LOAD R4, STORE R3, SUB R2, JZERO R2 end, INC R1, JUMP start, DEC R4, STORE R4, LOAD R2]
 
-	_ -> error "Hej, koniu! Zaimplementuj mnożenie i dzielenie."
+	Mod v v' -> do
+		i <- loadValue v R2 -- TODO: ogarnąć, co ma tu być (być może reg?)
+		i' <- loadValue v' R3
+		incLineNumber 3
+		start <- getLineNumber
+		incLineNumber 6
+		end <- getLineNumber
+		incLineNumber 3
+		return $ i ++ i' ++ [ZERO R1, INC R2, ZERO R0] ++  [STORE R2, LOAD R4, STORE R3, SUB R2, JZERO R2 end, JUMP start] ++ [DEC R4, STORE R4, LOAD reg]
+
 
 computeCondition :: Condition -> Reg -> Reg -> StateT GenState (Either Error) [Instr]
 computeCondition cond reg reg' = case cond of
