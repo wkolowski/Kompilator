@@ -2,8 +2,10 @@ VAR
   a b
 BEGIN
   READ a;
-  WHILE a >= 1 DO
+  READ b;
+  WHILE a >= b DO
     a := a - 1;
   ENDWHILE
+  WRITE b;
   WRITE a;
 END

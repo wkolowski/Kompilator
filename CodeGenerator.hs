@@ -131,8 +131,8 @@ translateCommand cmd = case cmd of
 	Asgn id exp -> translateAsgn id exp
 	If cond cmds cmds' -> translateIf cond cmds cmds'
 	While cond cmds -> translateWhile cond cmds
-	ForUp name v v' cmds -> translateForUp name v v' cmds
-	ForDown name v v' cmds -> translateForDown name v v' cmds
+	ForUp name v v' cmds -> translateForUp' name v v' cmds
+	ForDown name v v' cmds -> translateForDown' name v v' cmds
 	Read id -> translateRead id
 	Write val -> translateWrite val
 	_ -> return []
@@ -177,7 +177,7 @@ translateIfLe v v' cmds cmds' = do
 	return $ c ++ [JZERO R1 afterJump] ++ i' ++ [JUMP end] ++ i
 
 translateIfEq :: Value -> Value -> [Command] -> [Command] -> StateT GenState (Either Error) [Instr]
-translateIfEq v v' cmds cmds' = do
+translateIfEq v v' cmds cmds' = do -- TODO: sprawdzić nierówność
 	c <- computeCondition (Eq v v') R2 R3
 	incLineNumber 2
 	(_, secondJump) <- get
@@ -247,7 +247,7 @@ translateWhileNeq v v' cmds = do
 	return $ c ++ [JZERO R2 secondJump, JUMP codeLine, JZERO R3 endOfWhile] ++ code ++ [JUMP startOfWhile]
 
 translateForUp :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
-translateForUp name v v' cmds = do
+translateForUp name v v' cmds = do -- TODO: zamrozić wartość końca
 	allocateScalar name
 	let iter = Pidentifier name undefined -- WARNING
 	i1 <- translateAsgn iter (Value v)
@@ -263,7 +263,7 @@ translateForUp name v v' cmds = do
 	return $ i1 ++ i2 ++ [JZERO R2 loopLine, JUMP endOfFor] ++ i3 ++ i4 ++ [JUMP startOfFor]
 
 translateForDown :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
-translateForDown name v v' cmds = do
+translateForDown name v v' cmds = do -- TODO: dla wartości końcowej 0
 	allocateScalar name
 	let iter = Pidentifier name undefined -- WARNING
 	i1 <- translateAsgn iter (Value v)
@@ -277,6 +277,61 @@ translateForDown name v v' cmds = do
 	endOfFor <- getLineNumber
 	deallocateScalar name
 	return $ i1 ++ i2 ++ [JZERO R2 loopLine, JUMP endOfFor] ++ i3 ++ i4 ++ [JUMP startOfFor]
+
+translateForUp' :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateForUp' name v v' cmds = do
+	let name' = name ++ "'"
+	allocateScalar name
+	allocateScalar $ name'
+	let iter = Pidentifier name undefined -- WARNING
+	let counter = Pidentifier name' undefined -- WARNING
+
+	i1 <- translateAsgn iter (Value v)
+
+	i2 <- loadValue v' R2
+	incLineNumber 1
+	i3 <- sub v R2 R4
+	i4 <- loadAddressToR0 counter R4
+	incLineNumber 1
+	startOfFor <- getLineNumber
+	i5 <- loadValue (Identifier counter) R2
+	incLineNumber 1
+	i6 <- translateCommands cmds
+	i7 <- translateAsgn iter (Plus (Identifier iter) (Num 1))
+	i8 <- translateAsgn counter (Minus (Identifier counter) (Num 1))
+	incLineNumber 1
+	endOfFor <- getLineNumber
+	
+
+	return $ i1 ++ i2 ++ [INC R2] ++ i3 ++ i4 ++ [STORE R2] ++ i5 ++ [JZERO R2 endOfFor] ++ i6 ++ i7 ++ i8 ++ [JUMP startOfFor]
+
+translateForDown' :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateForDown' name v v' cmds = do
+	let name' = name ++ "'"
+	allocateScalar name
+	allocateScalar $ name'
+	let iter = Pidentifier name undefined -- WARNING
+	let counter = Pidentifier name' undefined -- WARNING
+
+	i1 <- translateAsgn iter (Value v)
+
+	i2 <- loadValue v R2
+	incLineNumber 1
+	i3 <- sub v' R2 R4
+	i4 <- loadAddressToR0 counter R4
+	incLineNumber 1
+	startOfFor <- getLineNumber
+	i5 <- loadValue (Identifier counter) R2
+	incLineNumber 1
+	i6 <- translateCommands cmds
+	i7 <- translateAsgn iter (Minus (Identifier iter) (Num 1))
+	i8 <- translateAsgn counter (Minus (Identifier counter) (Num 1))
+	incLineNumber 1
+	endOfFor <- getLineNumber
+	
+
+	return $ i1 ++ i2 ++ [INC R2] ++ i3 ++ i4 ++ [STORE R2] ++ i5 ++ [JZERO R2 endOfFor] ++ i6 ++ i7 ++ i8 ++ [JUMP startOfFor]
+	
 
 -- Instructions that write a constant into a register.
 data BinaryDigit = B0 | B1 deriving (Eq, Show)
@@ -333,6 +388,17 @@ loadValue val reg = case val of
 		incLineNumber 1
 		return $ i ++ [LOAD reg]
 
+sub :: Value -> Reg -> Reg -> StateT GenState (Either Error) [Instr]
+sub v reg aux = case v of
+	Num n -> do
+		i <- loadConst n aux
+		incLineNumber 3
+		return $ i ++ [ZERO R0, STORE aux, SUB reg]
+	Identifier id -> do
+		i <- loadAddressToR0 id aux
+		incLineNumber 1
+		return $ i ++ [SUB reg]
+
 loadExpression :: Expression -> Reg -> StateT GenState (Either Error) [Instr]
 loadExpression exp reg
 	| reg == R4 = errT $ "Can't use R4 in loadExpression because it's for intermediate results."
@@ -342,6 +408,10 @@ loadExpression exp reg
 
 	Plus (Num n) (Num n') -> loadConst (n + n') reg
 	Plus v@(Identifier id) v'@(Num n') -> loadExpression (Plus v' v) reg
+	Plus v@(Num 1) v' -> do -- NEW
+		i <- loadValue v' reg
+		incLineNumber 1
+		return $ i ++ [INC reg]
 	Plus (Num n) (Identifier id') -> do
 		i <- loadConst n reg
 		i' <- loadAddressToR0 id' R4
@@ -354,11 +424,11 @@ loadExpression exp reg
 		return $ i ++ [LOAD reg] ++ i' ++ [ADD reg]
 
 	Minus (Num n) (Num n') -> loadConst (max 0 (n - n')) reg
-	Minus v@(Identifier id) v'@(Num n') -> do -- This is VERY inefficient. UPDATE: better now.
-		{-i <- loadValue v reg
-		let i' = take (fromInteger n') $ repeat (DEC reg)
-		incLineNumber $ n'
-		return $ i ++ i'-}
+	Minus v v'@(Num 1) -> do
+		i <- loadValue v reg
+		incLineNumber 1
+		return $ i ++ [DEC reg]
+	Minus v@(Identifier id) v'@(Num n') -> do
 		i <- loadValue v reg
 		i' <- loadConst n' R4
 		incLineNumber 3
@@ -382,7 +452,7 @@ loadExpression exp reg
 		incLineNumber 1
 		return $ i ++ [SHL reg]
 	Mul v v'@(Identifier id') -> do
-		incLineNumber 1
+		{-incLineNumber 1
 		i <- loadValue v R2
 		i' <- loadValue v' R3
 		i'' <- loadAddressToR0 id' R4
@@ -392,8 +462,21 @@ loadExpression exp reg
 		(_, add) <- get
 		incLineNumber 7
 		(_, end) <- get
-		return $ [ZERO R1] ++ i ++ i' ++ i'' ++ [LOAD R4, JODD R2 add, JUMP (add + 1), ADD R1, SHR R2, SHL R3, STORE R3, JZERO R2 end, JUMP start, STORE R4]
-
+		return $ [ZERO R1] ++ i ++ i' ++ i'' ++ [LOAD R4, JODD R2 add, JUMP (add + 1), ADD R1, SHR R2, SHL R3, STORE R3, JZERO R2 end, JUMP start, STORE R4]-}
+		incLineNumber 1
+		i <- loadValue v R2
+		i' <- loadValue v' R3
+		i'' <- loadAddressToR0 id' R4
+		incLineNumber 1
+		(_, start) <- get
+		incLineNumber 2
+		(_, add) <- get
+		incLineNumber 6
+		(_, end) <- get
+		i''' <- loadAddressToR0 id' R3
+		incLineNumber 1
+		return $ [ZERO R1] ++ i ++ i' ++ i'' ++ [LOAD R4, JODD R2 add, JUMP (add + 1), ADD R1, SHR R2, SHL R3, STORE R3, JZERO R2 end, JUMP start]-- STORE R4]
+			++ i''' ++ [STORE R4]
 
 	Div (Num n) (Num n') -> loadConst (n `div` n') reg
 	Div v (Num 2) -> do
@@ -417,8 +500,8 @@ loadExpression exp reg
 		end <- getLineNumber
 		return $ i ++ i' ++ [ZERO R1, INC R2, ZERO R0] ++  [STORE R2, LOAD R4, STORE R3, SUB R2, JZERO R2 end, INC R1, JUMP start, DEC R4, STORE R4, LOAD R2]
 
-	Mod v v' -> do
-		i <- loadValue v R2 -- TODO: ogarnąć, co ma tu być (być może reg?)
+	Mod v v' -> do -- TODO: test nr 3
+		i <- loadValue v R2
 		i' <- loadValue v' R3
 		incLineNumber 3
 		start <- getLineNumber
