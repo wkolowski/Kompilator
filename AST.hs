@@ -55,7 +55,6 @@ data Identifier
 	= Pidentifier String AlexPosn
 	| ArrayPidentifier String String AlexPosn AlexPosn
 	| ArrayNum String Integer AlexPosn
---	deriving (Eq)
 
 instance Show Identifier where
 	show (Pidentifier name _) = name

@@ -8,7 +8,7 @@
 tokens :-
 	-- Ignore whitespace and comments.
 	$white			;
-	\{[^\}]*\}		;
+	\{([^\}]|\n)*\}		;
 
 	-- Keywords. First argument is info about line and column number, second
 	-- is the matched string (same as the keyword, so it's discarded).

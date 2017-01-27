@@ -1,0 +1,26 @@
+VAR
+  a b i wynikczesciowy wynik
+BEGIN
+  READ a;
+  READ b;
+
+  wynik := 0;
+
+  WHILE a >= b DO
+    wynikczesciowy := 1;
+    i := b;
+    WHILE a >= i DO
+      i := i * 2;
+      wynikczesciowy := wynikczesciowy * 2;
+    ENDWHILE
+
+    i := i / 2;
+    wynikczesciowy := wynikczesciowy / 2;
+
+    wynik := wynik + wynikczesciowy;
+    a := a - i;
+  ENDWHILE
+
+  WRITE wynik;
+  WRITE a;
+END

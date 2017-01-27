@@ -1,3 +1,6 @@
+{ sito Eratostenesa 
+  1229 liczb
+}
 VAR
 	n j sito[10000] l
 BEGIN

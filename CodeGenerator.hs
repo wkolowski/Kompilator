@@ -76,6 +76,12 @@ getArray name = StateT $ \(memory, lineNumber) -> case Map.lookup name (arrays m
 errT :: String -> StateT a (Either Error) b
 errT msg = StateT $ \_ -> Left msg
 
+-- Put instructions.
+{-putInstrs :: [Instr] -> StateT GenState (Either Error) [Instr]
+putInstrs instrs = do
+	incLineNumber $ length instrs
+	return instrs-}
+
 -- Code generator needs memory to keep track of variables and also
 -- needs to keep track of how many lines of asm were already output
 -- in order to calculate jump labels properly.
@@ -228,6 +234,10 @@ translateWhile cond cmds = case cond of
 	Ge v v' -> translateWhileLe v' v cmds
 	Lt v v' -> translateWhileLt v v' cmds
 	Gt v v' -> translateWhileLt v' v cmds
+		{- Doesn't help
+		if v' == Num 0
+		then translateWhileGt0 v cmds
+		else translateWhileLt v' v cmds-}
 	Eq v v' -> translateWhileEq v v' cmds
 	Neq v v' -> translateWhileNeq v v' cmds
 
@@ -251,6 +261,18 @@ translateWhileLt v v' cmds = do
 	incLineNumber 1
 	(_, endOfWhile) <- get
 	return $ c ++ [JZERO R2 endOfWhile] ++ whileCode ++ [JUMP startOfWhile]
+
+-- Doesn't really help.
+{-translateWhileGt0 :: Value -> [Command] -> StateT GenState (Either Error) [Instr]
+translateWhileGt0 v cmds = do
+	startOfWhile <- getLineNumber
+	i <- loadValue v R1
+	incLineNumber 1
+	i' <- translateCommands cmds
+	incLineNumber 1
+	endOfWhile <- getLineNumber
+
+	return $ i ++ [JZERO R1 endOfWhile] ++ i' ++ [JUMP startOfWhile]-}
 
 translateWhileEq :: Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
 translateWhileEq v v' cmds = do
@@ -388,6 +410,26 @@ loadAddressToR0 id reg
 			incLineNumber 2
 			return $ i ++ i' ++ [ADD reg, COPY reg]
 
+{-loadAddress :: Identifier -> Reg -> reg -> StateT GenState (Either Error) [Instr]
+loadAddress id reg aux = do
+	| reg == aux = errT $ "loadAddress called with result register equal to helper register."
+	| otherwise = case id of
+		Pidentifier name _ -> do
+			address <- getScalar name
+			loadConst address reg
+		ArrayNum name index _ -> do
+			(size, address) <- getArray name
+			if not $ 0 <= index && index < size then errT $ "Index " ++ show index ++ " out of bounds 0-" ++ show (size - 1) ++ "." else return ()
+			loadConst (address + index) reg
+		ArrayPidentifier name indexName _ _ -> do
+			(_, arrayAddress) <- getArray name
+			i <- loadConst arrayAddress reg
+			indexAddress <- getScalar indexName
+			i' <- loadConst indexAddress R0
+			incLineNumber 1
+			return $ i ++ i' ++ [ADD aux]-}
+
+
 loadValue :: Value -> Reg -> StateT GenState (Either Error) [Instr]
 loadValue val reg = case val of
 	Num n -> loadConst n reg
@@ -439,6 +481,10 @@ loadExpression exp reg
 		return $ i ++ [LOAD reg] ++ i' ++ [ADD reg]
 
 	Minus (Num n) (Num n') -> loadConst (max 0 (n - n')) reg
+	Minus (Num 0) _ -> do -- TODO: check
+		incLineNumber 1
+		return [ZERO reg]
+	Minus v (Num 0) -> loadValue v reg -- TODO: check
 	Minus v v'@(Num 1) -> do
 		i <- loadValue v reg
 		incLineNumber 1
@@ -475,7 +521,7 @@ loadExpression exp reg
 		i <- loadValue v reg
 		incLineNumber 1
 		return $ i ++ [SHR reg]
-	Div v v' -> do
+{-	Div v v' -> do
 		i <- loadValue v R2 -- TODO: ogarnąć, co ma tu być (być może reg?)
 		i' <- loadValue v' R3
 		incLineNumber 3
@@ -483,7 +529,11 @@ loadExpression exp reg
 		incLineNumber 10
 		end <- getLineNumber
 		return $ i ++ i' ++ [ZERO R1, INC R2, ZERO R0] ++  [STORE R2, LOAD R4, STORE R3, SUB R2, JZERO R2 end, INC R1, JUMP start, DEC R4, STORE R4, LOAD R2]
-
+-}
+	Div v v' -> do
+		i <- divide v v'
+		incLineNumber 3
+		return $ i ++ [ZERO R0, STORE R1, LOAD reg]
 	Mod v (Num 2) -> do
 		i <- loadValue v R2
 		incLineNumber 3
@@ -493,7 +543,7 @@ loadExpression exp reg
 
 		return $ i ++ [JODD R2 incr, ZERO reg, JUMP end, ZERO reg, INC reg]
 
-	Mod v v' -> do
+{-	Mod v v' -> do
 		i <- loadValue v R2
 		i' <- loadValue v' R3
 		incLineNumber 3
@@ -502,6 +552,66 @@ loadExpression exp reg
 		end <- getLineNumber
 		incLineNumber 3
 		return $ i ++ i' ++ [ZERO R1, INC R2, ZERO R0] ++  [STORE R2, LOAD R4, STORE R3, SUB R2, JZERO R2 end, JUMP start] ++ [DEC R4, STORE R4, LOAD reg]
+-}
+	Mod v v' -> do
+		i <- divide v v'
+		incLineNumber 3
+		return $ i ++ [ZERO R0, STORE R2, LOAD reg]
+
+divide :: Value -> Value -> StateT GenState (Either Error) [Instr]
+divide v v' = do
+	allocateScalar "_a"
+	allocateScalar "_b"
+	allocateScalar "_i"
+	allocateScalar "_result"
+	allocateScalar "_partial"
+
+	let _a = Pidentifier "_a" undefined
+	let _b = Pidentifier "_b" undefined
+	let _i = Pidentifier "_i" undefined
+	let _result = Pidentifier "_result" undefined
+	let _partial = Pidentifier "_partial" undefined
+
+	let a = Identifier _a
+	let b = Identifier _b
+	let i = Identifier _i
+	let result = Identifier _result
+	let partial = Identifier _partial
+
+	i1 <- translateCommands
+		[ Asgn _a (Value v)
+		, Asgn _b (Value v')
+		, Asgn _result (Value $ Num 0)
+		, While (Ge a b)
+			[ Asgn _partial (Value $ Num 1)
+			, Asgn _i (Value b)
+			, While (Ge a i)
+				[ Asgn _i (Mul i (Num 2))
+				, Asgn _partial (Mul partial (Num 2))
+				]
+			, Asgn _i (Div i (Num 2))
+			, Asgn _partial (Div partial (Num 2))
+			, Asgn _result (Plus result partial)
+			, Asgn _a (Minus a i)
+			]
+		]
+
+	i2 <- loadValue result R1
+	i3 <- loadValue a R2
+
+	deallocateScalar "_a"
+	deallocateScalar "_b"
+	deallocateScalar "_i"
+	deallocateScalar "_result"
+	deallocateScalar "_partial"
+
+	return $ i1 ++ i2 ++ i3
+
+mod :: Value -> Value -> StateT GenState (Either Error) [Instr]
+mod v v' = do
+	i <- divide v v'
+	incLineNumber 2
+	return $ i ++ [ZERO R0, STORE R2, LOAD R1]
 
 computeCondition :: Condition -> Reg -> Reg -> StateT GenState (Either Error) [Instr]
 computeCondition cond reg reg' = case cond of

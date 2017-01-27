@@ -1,3 +1,10 @@
+{ Rozklad liczby na czynniki pierwsze 
+? 12345678901
+  857 * 14405693
+
+? 12345678903
+  3 * 4115226301
+}
 VAR
     n m reszta potega dzielnik
 BEGIN

@@ -1,3 +1,8 @@
+{ Silnia + Fibonacci
+? 20
+> 2432902008176640000
+> 17711
+}
 VAR
     f[101] s[101] i[101] n k l
 BEGIN
