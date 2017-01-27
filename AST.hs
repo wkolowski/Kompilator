@@ -55,9 +55,14 @@ data Identifier
 	= Pidentifier String AlexPosn
 	| ArrayPidentifier String String AlexPosn AlexPosn
 	| ArrayNum String Integer AlexPosn
-	deriving (Eq)
+	--deriving (Eq)
 
 instance Show Identifier where
 	show (Pidentifier name _) = name
 	show (ArrayPidentifier name indexName _ _) = name ++ "[" ++ indexName ++ "]"
 	show (ArrayNum name index _) = name ++ "[" ++ (show index) ++ "]"
+
+instance Eq Identifier where
+	Pidentifier name _ == Pidentifier name' _ = name == name'
+	ArrayPidentifier name _ _ _ == ArrayPidentifier name' _ _ _ = name == name'
+	ArrayNum name _ _ == ArrayNum name' _ _ = name == name'

@@ -22,8 +22,10 @@ foldConstsExpr e = case e of
 	Plus (Num 0) v -> Value v
 	Plus v (Num 0) -> Value v
 	Plus v v'@(Num _) -> Plus v' v -- TODO WUT
+	Plus v v' -> if v == v' then Mul (Num 2) v else Plus v v'
 	Minus (Num n) (Num n') -> Value $ Num (max (n - n') 0)
 	Minus v (Num 0) -> Value v
+	Minus v v' -> if v == v' then Value $ Num 0 else Minus v v'
 	Mul (Num n) (Num n') -> Value $ Num (n * n')
 	Mul (Num 1) v -> Value v
 	Mul v (Num 1) -> Value v
