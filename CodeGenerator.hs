@@ -46,14 +46,21 @@ type Name = String
 type LineNumber = Integer
 type MemoryPosition = Integer
 
-data Memory = Memory {scalars :: Map.Map Name Address, arrays :: Map.Map Name (Size, Address), position :: MemoryPosition}
+data Memory = Memory
+	{ scalars :: Map.Map Name Address
+	, arrays :: Map.Map Name (Size, Address)
+	, iterPosition :: MemoryPosition
+	, maxIterPosition :: MemoryPosition
+	, position :: MemoryPosition
+	}
 
 instance Show Memory where
 	show memory = Map.union (fmap (\address -> (address, 1)) (scalars memory)) (fmap (\(size, address) -> (address, size)) (arrays memory))
 		    $> Map.toList $> sortBy (\x y -> compare (fst . snd $ x) (fst . snd $ y)) $> show
 
 emptyMemory :: Memory
-emptyMemory = Memory {scalars = Map.empty, arrays = Map.empty, position = 1}
+emptyMemory = Memory {scalars = Map.empty, arrays = Map.empty, iterPosition = 1, maxIterPosition = 2, position = 3}
+--emptyMemory = Memory {scalars = Map.empty, arrays = Map.empty, iterPosition = 1, maxIterPosition = 4, position = 5}
 
 getScalar :: Name -> StateT GenState (Either Error) Address
 getScalar name = StateT $ \(memory, lineNumber) -> case Map.lookup name (scalars memory) of
@@ -87,12 +94,15 @@ getMemory = do
 getMemoryPosition :: StateT GenState (Either Error) MemoryPosition
 getMemoryPosition = liftM position getMemory
 
+getIterMemoryPosition :: StateT GenState (Either Error) MemoryPosition
+getIterMemoryPosition = liftM iterPosition getMemory
+
 incLineNumber :: Integer -> StateT GenState (Either Error) ()
 incLineNumber k = do
 	modify $ \(memory, lineNumber) -> (memory, lineNumber + k)
 	return ()
 
--- translate code
+-- Translate code.
 generateCode :: Program -> StateT GenState (Either Error) [Instr]
 generateCode (Program decls cmds) = do
 	allocateAll decls
@@ -111,6 +121,28 @@ allocateArray :: Name -> Size -> StateT GenState (Either Error) ()
 allocateArray name size =
 	modify $ \(memory, lineNumber) -> (memory {arrays = Map.insert name (size, position memory) (arrays memory), position = position memory + size}, lineNumber)
 
+allocateIter :: Name -> StateT GenState (Either Error) ()
+allocateIter name = do
+	iterPos <- liftM iterPosition getMemory
+	maxIterPos <- liftM maxIterPosition getMemory
+	if iterPos > maxIterPos then allocateScalar name
+	else do
+		modify $ \(memory, lineNumber) ->
+			(memory {scalars = Map.insert name (iterPosition memory) (scalars memory), iterPosition = iterPosition memory + 1}, lineNumber)
+		return ()
+
+deallocateIter :: Name -> StateT GenState (Either Error) ()
+deallocateIter name = do
+	memory <- getMemory
+	let maxIterPos = maxIterPosition memory
+	case Map.lookup name (scalars memory) of
+		Nothing -> errT $ "Iterator " ++ name ++ " not found in memory!"
+		Just address -> if address > maxIterPos
+			then deallocateScalar name
+			else modify $ \(memory, lineNumber) ->
+				(memory {scalars = Map.delete name (scalars memory), iterPosition = iterPosition memory - 1}, lineNumber)
+				
+	
 allocate :: Declaration -> StateT GenState (Either Error) ()
 allocate decl = case decl of
 	AST.Scalar name _ -> allocateScalar name
@@ -249,8 +281,10 @@ translateWhileNeq v v' cmds = do
 translateForUp' :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
 translateForUp' name v v' cmds = do
 	let name' = name ++ "'"
-	allocateScalar name
-	allocateScalar $ name'
+	--allocateScalar name
+	--allocateScalar $ name'
+	allocateIter name
+	allocateIter name'
 	let iter = Pidentifier name undefined -- WARNING
 	let counter = Pidentifier name' undefined -- WARNING
 
@@ -269,15 +303,19 @@ translateForUp' name v v' cmds = do
 	i8 <- translateAsgn counter (Minus (Identifier counter) (Num 1))
 	incLineNumber 1
 	endOfFor <- getLineNumber
-	
 
+	deallocateIter name
+	deallocateIter name'	
+	
 	return $ i1 ++ i2 ++ [INC R2] ++ i3 ++ i4 ++ [STORE R2] ++ i5 ++ [JZERO R2 endOfFor] ++ i6 ++ i7 ++ i8 ++ [JUMP startOfFor]
 
 translateForDown' :: Name -> Value -> Value -> [Command] -> StateT GenState (Either Error) [Instr]
 translateForDown' name v v' cmds = do
 	let name' = name ++ "'"
-	allocateScalar name
-	allocateScalar $ name'
+	--allocateScalar name
+	--allocateScalar $ name'
+	allocateIter name
+	allocateIter name'
 	let iter = Pidentifier name undefined -- WARNING
 	let counter = Pidentifier name' undefined -- WARNING
 
@@ -297,6 +335,8 @@ translateForDown' name v v' cmds = do
 	incLineNumber 1
 	endOfFor <- getLineNumber
 	
+	deallocateIter name
+	deallocateIter name'
 
 	return $ i1 ++ i2 ++ [INC R2] ++ i3 ++ i4 ++ [STORE R2] ++ i5 ++ [JZERO R2 endOfFor] ++ i6 ++ i7 ++ i8 ++ [JUMP startOfFor]
 	
@@ -403,22 +443,6 @@ loadExpression exp reg
 		i <- loadValue v reg
 		incLineNumber 1
 		return $ i ++ [DEC reg]
-	{-Minus v@(Identifier id) v'@(Num n') -> do
-		i <- loadValue v reg
-		i' <- loadConst n' R4
-		incLineNumber 3
-		return $ i ++ i' ++ [ZERO R0, STORE R4, SUB R1]
-	Minus (Num n) (Identifier id') -> do
-		i <- loadConst n reg
-		i' <- loadAddressToR0 id' R4
-		incLineNumber 1
-		return $ i ++ i' ++ [SUB reg]
-	Minus (Identifier id) (Identifier id') -> do
-		i <- loadAddressToR0 id R4
-		incLineNumber 1
-		i' <- loadAddressToR0 id' R4
-		incLineNumber 1
-		return $ i ++ [LOAD reg] ++ i' ++ [SUB reg]-}
 	Minus v v' -> do
 		i <- loadValue v reg
 		i' <- sub v' reg R4

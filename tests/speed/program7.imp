@@ -1,0 +1,14 @@
+VAR
+  s[101] n j
+BEGIN
+    s[0] := 0;
+    READ n;
+    s[n]:=1;
+    j:=n;
+    n:=n-1;
+    FOR i FROM n DOWNTO 0 DO
+		s[i]:=s[j]*j;
+		j:=j-1;
+    ENDFOR
+    WRITE s[0];
+END

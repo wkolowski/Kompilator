@@ -1,0 +1,23 @@
+VAR
+	n j sito[10000] l
+BEGIN
+	n := 10000-1;
+	l := 0;
+	FOR i FROM n DOWNTO 2 DO
+		sito[i] := 1;
+	ENDFOR
+	FOR i FROM 2 TO n DO
+		IF sito[i] <> 0 THEN
+			j := i + i;
+			WHILE j <= n DO
+				sito[j] := 0;
+				j := j + i;
+			ENDWHILE
+			WRITE i;
+			l:=l+1;
+		ELSE
+			SKIP;
+		ENDIF
+	ENDFOR
+	WRITE l;
+END
