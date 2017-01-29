@@ -73,7 +73,7 @@ getScalarOrIter name pos = do
 	case vt of
 		VTScalar vst -> return vst
 		VTIter vst -> return vst
-		VTArray _ _ -> errT pos $ "Tried to use variable " ++ name ++ " as an array, but it was declared a scalar/iterator."
+		VTArray _ _ -> errT pos $ "Tried to use variable " ++ name ++ " as a scalar/iterator, but it was declared an array."
 
 getArray :: Name -> AlexPosn -> StateT Context (Either Error) (Size, Map.Map Integer VarState)
 getArray name pos = do
@@ -270,7 +270,7 @@ assertArrayNumInitialized name index pos = do
 
 assertIdentifierInitialized :: Identifier -> StateT Context (Either Error) ()
 assertIdentifierInitialized id = case id of
-	Pidentifier name pos -> assertScalarInitialized name pos
+	Pidentifier name pos -> assertScalarOrIterInitialized name pos
 	ArrayNum name index pos -> assertArrayNumInitialized name index pos
 	ArrayPidentifier name indexName namePos indexPos -> do
 		vst <- getScalarOrIter indexName indexPos

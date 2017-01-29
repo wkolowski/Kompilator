@@ -3,31 +3,39 @@ Wymagania:
  - Alex
  - Happy
 
+Instalacja na Ubuntu:
+```
+sudo apt-get install haskell-platform
+```
+
 Kompilacja
 ```
 ./make.sh
 ```
 
+Testy analizy statycznej (mało czytelne):
+```
+./test.sh
+```
+
 Sposób użycia
 ```
-cat program.imp | ./compiler > code.mr
-./interpreter code.mr
+cat program.imp | ./compiler > code.mr; ./interpreter code.mr
 ```
 Zrobione:
  - Lekser
  - Parser
- - Analiza statyczna przypisań, READ i WRITE (bez IF, WHILE, FOR)
+ - Analiza statyczna
  - Drobne optymalizacje (zwijanie stałych, tożsamości arytmetyczne)
  - Generator kodu (z optymalnym mnożeniem, dzieleniem i modulo)
 
 Do zrobienia:
- - Dokończyć analizę statyczną.
  - Lepsze optymalizacje (częściowa ewaluacja). Zrobić przegląd tożsamości arytmetycznych (na poziomie generatora kodu).
  - Lepsze wiadomości o błędach (error token https://www.haskell.org/happy/doc/html/sec-error.html)
  - Wydajniejsze dzielenie (pewnie da się).
  - Usunąć martwy kod i dodać komentarze.
  - Lepsze zarządzanie pamięcią.
- - Nie oszukujmy się, komu chce się to robić??
+ - Nie oszukujmy się, komu chce się to robić?
 
 Testy:
  - Testy na analizę statyczną działały jak ostatnio sprawdzałem.

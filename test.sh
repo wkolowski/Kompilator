@@ -16,6 +16,5 @@ echo "Błędne programy"
 echo "================================================================================================================================================"
 for file in tests/errors/*imp; do
 	echo $file
-	cat $file | head -n 1
 	cat $file | ./compiler | head -n 1
 done
