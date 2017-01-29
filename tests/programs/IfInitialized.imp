@@ -1,0 +1,11 @@
+VAR
+  a b
+BEGIN
+  READ a;
+  IF a = 42 THEN
+    b := 42;
+  ELSE
+    b := 0;
+  ENDIF
+  WRITE b;
+END

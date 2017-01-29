@@ -14,33 +14,23 @@ import CodeGenerator
 
 main = do
 	-- Read and sanitize the input.
-	text <- getContents
-	--putStr text
-	let code = filter (\c -> 0 <= fromEnum c && fromEnum c < 128) text
+	code <- getContents
+	let sanitized = filter (\c -> 0 <= fromEnum c && fromEnum c < 128) code
 	-- Lexer.
-	let tokens = alexScanTokens code
+	let tokens = alexScanTokens sanitized
 	-- Parser.
 	let program = parse tokens
-	--print $ program
 	-- Static analysis.
 	let analyzed = evalStateT (analyze program) emptyContext
 	case analyzed of
 		Left msg -> print msg
 		Right analyzedProgram -> do
-			--print analyzedProgram
 			-- Optimizer.
 			let optimizedProgram = optimize analyzedProgram
-			-- Results
-			--print optimized
-			let (Program decls cmds) = analyzedProgram
-			{-case processDeclarations decls of
-				Left msg -> print msg
-				Right memory -> print $ memory-}
+			-- Code generator.
 			let r = runStateT (generateCode optimizedProgram) (emptyMemory, 0)
 			case r of
 				Left msg -> print msg
 				Right (instructions, (_, numOfLines)) -> do
-					--hPutStrLn stderr $ "Number of lines is " ++ show numOfLines ++ ", but number of instructions is " ++ show (length instructions ) ++ "."
-					mapM_ (\(i, l) -> hPutStrLn stderr $ show l ++ " " ++ show i) (zip instructions [0..])
+					--mapM_ (\(i, l) -> hPutStrLn stderr $ show l ++ " " ++ show i) (zip instructions [0..])
 					mapM_ print instructions
-			--print $ flowTree cmds

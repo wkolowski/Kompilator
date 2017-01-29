@@ -1,15 +1,14 @@
 #!/bin/sh
 
-rm Lexer.hs Parser.hs; alex Lexer.x; happy Parser.y; ghc Lexer.hs AST.hs Parser.hs StaticAnalyzer.hs Optimizer.hs CodeGenerator.hs Compiler.hs -o compiler; rm *hi *o *~
+./make.sh
 
 echo "================================================================================================================================================"
 echo "Błędne programy od wykładowcy"
 echo "================================================================================================================================================"
 for file in labor4/error*.imp; do
 	echo $file
-	#echo -n "Should be: "
-	#cat $file | head -n 1
-	cat $file | ./compiler
+	cat $file | head -n 1
+	cat $file | ./compiler | head -n 1
 done
 
 echo "================================================================================================================================================"
@@ -17,13 +16,6 @@ echo "Błędne programy"
 echo "================================================================================================================================================"
 for file in tests/errors/*imp; do
 	echo $file
-	cat $file | ./compiler
-done
-
-echo "================================================================================================================================================"
-echo "Optymalizacje"
-echo "================================================================================================================================================"
-for file in tests/optimizations/*imp; do
-	echo $file
-	cat $file | ./compiler
+	cat $file | head -n 1
+	cat $file | ./compiler | head -n 1
 done

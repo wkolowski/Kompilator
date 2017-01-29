@@ -153,12 +153,18 @@ computeValue v = do
 		Num n -> return $ Known n
 		Identifier id -> computeIdentifier id
 
--- Extract position in file from an identifier.
+-- Extract name/position in file from an identifier.
 positionOfIdent :: Identifier -> AlexPosn
 positionOfIdent id = case id of
 	Pidentifier _ pos -> pos
 	ArrayNum _ _ pos -> pos
 	ArrayPidentifier _ _ pos _ -> pos
+
+nameOfIdent :: Identifier -> Name
+nameOfIdent id = case id of
+	Pidentifier name _ -> name
+	ArrayNum name _ _ -> name
+	ArrayPidentifier name _ _ _ -> name
 
 -- Operations on unknown values are unknown.
 liftCmpRes :: (Integer -> Integer -> Integer) -> ComputationResult -> ComputationResult -> ComputationResult
@@ -248,6 +254,13 @@ assertScalarInitialized name pos = do
 		Uninitialized -> errT pos $ "Tried to use uninitialized variable " ++ name ++ "."
 		_ -> return ()
 
+assertScalarOrIterInitialized :: Name -> AlexPosn -> StateT Context (Either Error) ()
+assertScalarOrIterInitialized name pos = do
+	vst <- getScalarOrIter name pos
+	case vst of
+		Uninitialized -> errT pos $ "Tried to use uninitialized variable " ++ name ++ "."
+		_ -> return ()
+
 assertArrayNumInitialized :: Name -> Index -> AlexPosn -> StateT Context (Either Error) ()
 assertArrayNumInitialized name index pos = do
 	vst <- getArrayIndex name index pos
@@ -260,7 +273,7 @@ assertIdentifierInitialized id = case id of
 	Pidentifier name pos -> assertScalarInitialized name pos
 	ArrayNum name index pos -> assertArrayNumInitialized name index pos
 	ArrayPidentifier name indexName namePos indexPos -> do
-		vst <- getScalar indexName indexPos
+		vst <- getScalarOrIter indexName indexPos
 		case vst of
 			Uninitialized -> errT indexPos $ "Tried to use uninitialized array index " ++ indexName ++ " in " ++ name ++ "[" ++ indexName ++ "]."
 			Initialized -> return ()
@@ -302,7 +315,10 @@ putIdentifier id vst = case id of
 	ArrayPidentifier name indexName namePos indexPos -> do
 		indexCr <- computeScalarOrIter indexName indexPos
 		case indexCr of
-			Unknown -> return ()
+			Unknown -> do -- First two lines added recently.
+				(size, array) <- getArray name undefined
+				modify $ \ctx -> ctx {arrays = Map.insert name (size, Map.fromList (zip [0..size - 1] (repeat Initialized))) (arrays ctx)}
+				return ()
 			Known index -> putArrayElement name index vst namePos
 
 -- Monadic actions that declare new variables (they also check whether these
@@ -350,14 +366,24 @@ analyzeCommands cmds = mapM analyzeCommand cmds
 analyzeCommand :: Command -> StateT Context (Either Error) Command
 analyzeCommand cmd = case cmd of
 	Asgn id expr -> analyzeAsgn id expr
-	{-If cond cmds cmds' -> error "Zaimplementowac analyzeCommand, przypadek If"
-	While cond cmds -> error "Zaimplementowac analyzeCommand, przypadek While"
-	ForUp name v v' cmds -> error "Zaimplementowac analyzeCommand, przypadek ForUp"
-	ForDown name v v' cmds -> error "Zaimplementowac analyzeCommand, przypadek ForDown"-}
+	If cond cmds cmds' -> do
+		analyzeCommands cmds
+		analyzeCommands cmds'
+		return cmd
+	While cond cmds -> analyzeWhile cond cmds
+	ForUp name v v' cmds -> do
+		modify $ \ctx -> ctx {iterators = Map.insert name Initialized (iterators ctx)}
+		analyzeCommands cmds
+		modify $ \ctx -> ctx {iterators = Map.delete name (iterators ctx)}
+		return cmd
+	ForDown name v v' cmds -> do
+		modify $ \ctx -> ctx {iterators = Map.insert name Initialized (iterators ctx)}
+		analyzeCommands cmds
+		modify $ \ctx -> ctx {iterators = Map.delete name (iterators ctx)}
+		return cmd
 	Read id -> analyzeRead id
 	Write val -> analyzeWrite val
 	Skip -> return Skip
-	_ -> return cmd
 
 -- Checks whether:
 -- a scalar is declared (if reading a scalar)
@@ -405,7 +431,7 @@ analyzeWrite (Identifier id) = do
 	return $ Write (Identifier id)
 
 -- Checks whether:
--- identifier is declared an a single thing (so allowed are declared scalars,
+-- identifier is declared as a single thing (so allowed are declared scalars,
 -- array elements if index is constant and in bounds, array elements if index
 --     is variable and initialized).
 -- expression doesn't contain division by zero or modular division by zero
@@ -417,3 +443,45 @@ analyzeAsgn id exp = do
 		Unknown -> putIdentifier id Initialized
 		Known n -> putIdentifier id (HasValue n)
 	return $ Asgn id exp
+
+-- To analyze the WHILE command, we have to set all variables that are present
+-- in its condition to Initialized. This will make the analyzer set anything
+-- that contains them to initialized which is helpful for arrays with unknown
+-- indices.
+analyzeWhile :: Condition -> [Command] -> StateT Context (Either Error) Command
+analyzeWhile cond cmds = do
+	initializeVarsIn cond
+	analyzeCommands cmds
+	return $ While cond cmds
+
+extractVarsFromCond :: Condition -> (Value, Value)
+extractVarsFromCond cond = case cond of
+	Le v v' -> (v, v')
+	Ge v v' -> (v, v')
+	Lt v v' -> (v, v')
+	Gt v v' -> (v, v')
+	Eq v v' -> (v, v')
+	Neq v v' -> (v, v')
+
+initializeVarsIn :: Condition -> StateT Context (Either Error) ()
+initializeVarsIn cond = do
+	let (v, v') = extractVarsFromCond cond
+	initializeValue v
+	initializeValue v'
+	return ()
+
+initializeValue :: Value -> StateT Context (Either Error) ()
+initializeValue v = case v of
+	Num _ -> return ()
+	Identifier id -> let name = nameOfIdent id in do
+		vt <- getVar name undefined
+		case vt of
+			VTScalar _ -> do
+				putScalar name Initialized
+				return ()
+			VTArray size _ -> do
+				putArray name size $ Map.fromList (zip [0..size - 1] (repeat Initialized))
+				return ()
+			VTIter _ -> do
+				modify $ \ctx -> ctx {iterators = Map.insert name Initialized (iterators ctx)}
+				return ()

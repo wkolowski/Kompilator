@@ -1,0 +1,10 @@
+VAR
+  a[1000]
+BEGIN
+  FOR i FROM 999 DOWNTO 0 DO
+    a[i] := 1;
+  ENDFOR
+  FOR i FROM 0 TO 999 DO
+    WRITE a[i];
+  ENDFOR
+END

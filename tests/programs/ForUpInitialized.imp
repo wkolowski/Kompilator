@@ -1,0 +1,8 @@
+VAR
+  a[10]
+BEGIN
+  FOR i FROM 0 TO 9 DO
+    a[i] := 1;
+  ENDFOR
+  WRITE a[0];
+END

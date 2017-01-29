@@ -1,0 +1,10 @@
+VAR
+  a[10] i
+BEGIN
+  i := 0;
+  WHILE i < 10 DO
+    a[i] := i;
+    i := i + 1;
+  ENDWHILE
+  WRITE a[9];
+END
