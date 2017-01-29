@@ -10,7 +10,8 @@ Kompilacja
 
 Sposób użycia
 ```
-cat program.imp | ./compiler > code.mr; ./interpreter code.mr
+cat program.imp | ./compiler > code.mr
+./interpreter code.mr
 ```
 Zrobione:
  - Lekser
