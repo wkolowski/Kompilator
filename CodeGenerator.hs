@@ -449,7 +449,13 @@ loadExpression exp reg
 		return $ i ++ i'
 
 	Mul (Num n) (Num m') -> loadConst (n * m') reg
-	Mul v v'@(Num n') -> loadExpression (Mul v' v) reg
+	Mul v v'@(Num n') -> if isPowerOf2 n'
+		then do
+			i <- loadValue v reg
+			let i' = replicate (discreteLog n') $ SHL reg
+			incLineNumber (discreteLog n')
+			return $ i ++ i'
+		else do loadExpression (Mul v' v) reg
 	Mul (Num 2) v' -> do
 		i <- loadValue v' reg
 		incLineNumber 1
@@ -562,3 +568,11 @@ computeCondition cond reg reg' = case cond of
 		i <- loadExpression (Minus v v') reg
 		i' <- loadExpression (Minus v' v) reg'
 		return $ i ++ i'
+
+discreteLog 1 = 0
+discreteLog n
+	| n <= 0 = error "Can't take discrete log of a negative number."
+	| otherwise = 1 + discreteLog (n `div` 2)
+
+isPowerOf2 :: Integer -> Bool
+isPowerOf2 n = 2 ^ discreteLog n == n

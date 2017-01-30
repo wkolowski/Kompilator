@@ -1,0 +1,14 @@
+{ program6.imp }
+VAR
+	fact n 
+BEGIN
+	READ n;
+	fact := 1;
+	FOR k FROM 1 TO n DO
+		fact := fact * k;
+	ENDFOR
+	WRITE fact;
+
+	{ Liczy n! }
+END
+

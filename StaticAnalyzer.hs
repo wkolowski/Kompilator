@@ -372,11 +372,39 @@ analyzeCommand cmd = case cmd of
 		return cmd
 	While cond cmds -> analyzeWhile cond cmds
 	ForUp name v v' cmds -> do
+		case v of
+			Identifier id -> do
+				assertIdentifierInitialized id
+				if nameOfIdent id == name
+				then StateT $ \_ -> Left $ "Tried to use iterator variable " ++ name ++ " in the range of a FOR loop."
+				else return ()
+			_ -> return ()
+		case v' of
+			Identifier id' -> do
+				assertIdentifierInitialized id'
+				if nameOfIdent id' == name
+				then StateT $ \_ -> Left $ "Tried to use iterator variable " ++ name ++ " in the range of a FOR loop."
+				else return ()
+			_ -> return ()
 		modify $ \ctx -> ctx {iterators = Map.insert name Initialized (iterators ctx)}
 		analyzeCommands cmds
 		modify $ \ctx -> ctx {iterators = Map.delete name (iterators ctx)}
 		return cmd
 	ForDown name v v' cmds -> do
+		case v of
+			Identifier id -> do
+				assertIdentifierInitialized id
+				if nameOfIdent id == name
+				then StateT $ \_ -> Left $ "Tried to use iterator variable " ++ name ++ " in the range of a FOR loop."
+				else return ()
+			_ -> return ()
+		case v' of
+			Identifier id' -> do
+				assertIdentifierInitialized id'
+				if nameOfIdent id' == name
+				then StateT $ \_ -> Left $ "Tried to use iterator variable " ++ name ++ " in the range of a FOR loop."
+				else return ()
+			_ -> return ()
 		modify $ \ctx -> ctx {iterators = Map.insert name Initialized (iterators ctx)}
 		analyzeCommands cmds
 		modify $ \ctx -> ctx {iterators = Map.delete name (iterators ctx)}

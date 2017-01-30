@@ -1,0 +1,20 @@
+{ program5.imp }
+VAR
+	a b
+BEGIN
+	READ a;
+	a := 5 + a;
+	b := a - 2047;
+	a := a % 4;
+	IF a < b THEN
+		SKIP;
+	ELSE
+		WRITE a;
+	ENDIF
+	IF b <= a THEN
+		WRITE b;
+	ELSE
+		SKIP;
+	ENDIF
+END
+
