@@ -1,0 +1,7 @@
+{ Błąd w linii 5: niewłaściwe użycie zmiennej tablicowej b }
+VAR
+  a b[10]
+BEGIN
+  b := 1;
+  a := b;
+END

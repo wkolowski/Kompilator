@@ -4,13 +4,23 @@ Wymagania:
  - Happy
 
 Instalacja na Ubuntu:
+
 ```
 sudo apt-get install haskell-platform
+```
+
+```
+git clone https://github.com/Zeimer/Kompilator
 ```
 
 Kompilacja
 ```
 ./make.sh
+```
+
+Kompilacja interpretera
+```
+g++ -Wall -std=c++0x labor4/interpreter.cc -o interpreter
 ```
 
 Testy analizy statycznej (mało czytelne):
@@ -52,3 +62,6 @@ Testy:
 Uwagi:
  - Specyfikacja języka Imp oraz maszyny rejestrowej jest w pliku labor4.pdf
  - Autorem interpretera (symulatora maszyny) jest dr Maciej Gębala.
+
+Efekt:
+ - Niestety jedynie 4.5 :/
