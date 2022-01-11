@@ -10,7 +10,7 @@ sudo apt-get install haskell-platform
 ```
 
 ```
-git clone https://github.com/Zeimer/Kompilator
+git clone https://github.com/wkolowski/Kompilator
 ```
 
 Kompilacja
