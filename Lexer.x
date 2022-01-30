@@ -1,83 +1,83 @@
 {
-	module Lexer where
+  module Lexer where
 }
 
 -- This gives us info about line number and column.
 %wrapper "posn"
 
 tokens :-
-	-- Ignore whitespace and comments.
-	$white			;
-	\{([^\}]|\n)*\}		;
+  -- Ignore whitespace and comments.
+  $white      ;
+  \{([^\}]|\n)*\}    ;
 
-	-- Keywords. First argument is info about line and column number, second
-	-- is the matched string (same as the keyword, so it's discarded).
-	VAR			{\p _ -> TW TVAR p}
-	BEGIN			{\p _ -> TW TBEGIN p}
-	END			{\p _ -> TW TEND p}
-	IF 			{\p _ -> TW TIF p}
-	THEN			{\p _ -> TW TTHEN p}
-	ELSE			{\p _ -> TW TELSE p}
-	ENDIF			{\p _ -> TW TENDIF p}
-	WHILE			{\p _ -> TW TWHILE p}
-	DO			{\p _ -> TW TDO p}
-	ENDWHILE		{\p _ -> TW TENDWHILE p}
-	FOR			{\p _ -> TW TFOR p}
-	FROM			{\p _ -> TW TFROM p}
-	TO			{\p _ -> TW TTO p}
-	ENDFOR			{\p _ -> TW TENDFOR p}
-	DOWNTO			{\p _ -> TW TDOWNTO p}
-	READ			{\p _ -> TW TREAD p}
-	WRITE			{\p _ -> TW TWRITE p}
-	SKIP			{\p _ -> TW TSKIP p}
+  -- Keywords. First argument is info about line and column number, second
+  -- is the matched string (same as the keyword, so it's discarded).
+  VAR      {\p _ -> TW TVAR p}
+  BEGIN      {\p _ -> TW TBEGIN p}
+  END      {\p _ -> TW TEND p}
+  IF       {\p _ -> TW TIF p}
+  THEN      {\p _ -> TW TTHEN p}
+  ELSE      {\p _ -> TW TELSE p}
+  ENDIF      {\p _ -> TW TENDIF p}
+  WHILE      {\p _ -> TW TWHILE p}
+  DO      {\p _ -> TW TDO p}
+  ENDWHILE    {\p _ -> TW TENDWHILE p}
+  FOR      {\p _ -> TW TFOR p}
+  FROM      {\p _ -> TW TFROM p}
+  TO      {\p _ -> TW TTO p}
+  ENDFOR      {\p _ -> TW TENDFOR p}
+  DOWNTO      {\p _ -> TW TDOWNTO p}
+  READ      {\p _ -> TW TREAD p}
+  WRITE      {\p _ -> TW TWRITE p}
+  SKIP      {\p _ -> TW TSKIP p}
 
-	-- Arithemtic operators.
-	\+			{\p _ -> TW TPlus p}
-	\-			{\p _ -> TW TMinus p}
-	\*			{\p _ -> TW TMul p}
-	\/			{\p _ -> TW TDiv p}
-	\%			{\p _ -> TW TMod p}
+  -- Arithemtic operators.
+  \+      {\p _ -> TW TPlus p}
+  \-      {\p _ -> TW TMinus p}
+  \*      {\p _ -> TW TMul p}
+  \/      {\p _ -> TW TDiv p}
+  \%      {\p _ -> TW TMod p}
 
-	-- Relational operators.
-	\=			{\p _ -> TW TEq p}
-	\<\>			{\p _ -> TW TNeq p}
-	\<			{\p _ -> TW TLt p}
-	\<\=			{\p _ -> TW TLe p}
-	\>\=			{\p _ -> TW TGe p}
-	\>			{\p _ -> TW TGt p}
+  -- Relational operators.
+  \=      {\p _ -> TW TEq p}
+  \<\>      {\p _ -> TW TNeq p}
+  \<      {\p _ -> TW TLt p}
+  \<\=      {\p _ -> TW TLe p}
+  \>\=      {\p _ -> TW TGe p}
+  \>      {\p _ -> TW TGt p}
 
-	-- Assingment and semicolon.
-	\:\=			{\p _ -> TW TAsgn p}
-	\;			{\p _ -> TW TSemicolon p}
+  -- Assingment and semicolon.
+  \:\=      {\p _ -> TW TAsgn p}
+  \;      {\p _ -> TW TSemicolon p}
 
-	-- Parentheses and brackets.
-	\[			{\p _ -> TW TLBracket p}
-	\]			{\p _ -> TW TRBracket p}
+  -- Parentheses and brackets.
+  \[      {\p _ -> TW TLBracket p}
+  \]      {\p _ -> TW TRBracket p}
 
-	-- Numbers.
-	[0-9]+			{\p s -> TW (TNum (read s :: Integer)) p}
+  -- Numbers.
+  [0-9]+      {\p s -> TW (TNum (read s :: Integer)) p}
 
-	-- Identifiers.
-	[_a-z]+			{\p s -> TW (TId (s, p)) p}
+  -- Identifiers.
+  [_a-z]+      {\p s -> TW (TId (s, p)) p}
 
 {
 
 data Token
-	-- Keywords.
-	= TVAR | TBEGIN | TEND | TIF | TTHEN | TELSE | TENDIF | TWHILE | TDO | TENDWHILE | TFOR | TFROM | TTO | TENDFOR | TDOWNTO | TREAD | TWRITE | TSKIP
-	-- Arithmetic operators.
-	| TPlus | TMinus | TMul | TDiv | TMod
-	-- Relational operators.
-	| TEq | TNeq | TLt | TLe | TGe | TGt
-	-- Assignment and semicolon.
-	| TAsgn | TSemicolon
-	-- Brackets.
-	| TLBracket | TRBracket
-	-- Numbers.
-	| TNum Integer
-	-- Identifiers.
-	| TId (String, AlexPosn)
-	deriving (Eq, Show)
+  -- Keywords.
+  = TVAR | TBEGIN | TEND | TIF | TTHEN | TELSE | TENDIF | TWHILE | TDO | TENDWHILE | TFOR | TFROM | TTO | TENDFOR | TDOWNTO | TREAD | TWRITE | TSKIP
+  -- Arithmetic operators.
+  | TPlus | TMinus | TMul | TDiv | TMod
+  -- Relational operators.
+  | TEq | TNeq | TLt | TLe | TGe | TGt
+  -- Assignment and semicolon.
+  | TAsgn | TSemicolon
+  -- Brackets.
+  | TLBracket | TRBracket
+  -- Numbers.
+  | TNum Integer
+  -- Identifiers.
+  | TId (String, AlexPosn)
+  deriving (Eq, Show)
 
 data TokWrap = TW Token AlexPosn deriving (Show)
 }
